@@ -11,9 +11,10 @@ from tqdm import tqdm
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Compile and test Java exam sessions with JUnit.")
-    parser.add_argument("--junit_jar", default= "lib/junit-platform-console-standalone-1.12.1.jar", required=True, help="Path to the JUnit standalone JAR file.")
-    parser.add_argument("--exams_dir", default="exams", required=True, help="Base directory containing year-wise exam folders.")
-    parser.add_argument("--dataset_path", default="disi-unibo-nlp/JAB", required=True, help="Path to Hugging Face data repository.")
+    parser.add_argument("--junit_jar", default= "lib/junit-platform-console-standalone-1.12.1.jar", help="Path to the JUnit standalone JAR file.")
+    parser.add_argument("--exams_dir", default="exams",  help="Base directory containing year-wise exam folders.")
+    parser.add_argument("--logs_dir", default="logs", help="Base directory containing logs.")
+    parser.add_argument("--dataset_path", default="disi-unibo-nlp/JAB", help="Path to Hugging Face data repository.")
     return parser.parse_args()
 
 def create_exams(dataset, exams_dir):
@@ -63,7 +64,6 @@ def create_exams(dataset, exams_dir):
                 f.write(sol_content.replace('.e1;','.sol1;').replace('.sol2;','.sol1;').replace('.e2;','.sol1;'))
 
 def main():
-    args = parse_args()
 
     load_dotenv()
     HF_TOKEN = os.getenv("HF_TOKEN")
@@ -154,9 +154,12 @@ def main():
         logger.info("All compilations succeeded!")
 
 if __name__ == "__main__":
+
+    args = parse_args()
+    os.makedirs(args.logs_dir, exist_ok=True)
     logging.basicConfig(level=logging.DEBUG,
                         format="[%(asctime)s] {%(filename)s:%(lineno)d} %(levelname)s - %(message)s",
-                        filename="sanity_check.log",
+                        filename=f"{args.logs_dir}/sanity_check.log",
                         filemode='w')
     logger = logging.getLogger(__name__)
     logger.addHandler(logging.StreamHandler())
