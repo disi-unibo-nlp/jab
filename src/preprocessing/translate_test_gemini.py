@@ -15,6 +15,10 @@ from tqdm import tqdm
 from google import genai
 from google.genai import types
 
+load_dotenv()
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+# Assert that GEMINI_API_KEY is set
+assert GEMINI_API_KEY, "GEMINI API KEY is required."
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Script for processing a dataset with Gemini.")
@@ -187,9 +191,6 @@ def main():
                 f.write(str(i) + "\n")
 
 if __name__ == "__main__":
-    load_dotenv()
-    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-
     args = parse_args()
     
     os.makedirs(args.logs_dir, exist_ok=True)
