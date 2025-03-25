@@ -8,13 +8,36 @@ We introduce the **Java Academic Benchmark (JAB)**, the first **interface-level 
 
 ## 📌 Before You Start
 
+
+### 🔧 Requirements
+Ensure that **Java JDK 21** and **JUnit 5** are installed:
+
+```bash
+apt-get update && apt-get install -y openjdk-21-jdk
+```
+
+Our experiments were run using the following JUnit version:
+
+```
+junit-platform-console-standalone-1.12.1.jar
+```
+### 🌍 Environment Variables
+Set up your environment variables before running the scripts:
+
+```bash
+HF_TOKEN=...         # Required
+OPENAI_API_KEY=...   # Optional
+GEMINI_API_KEY=...   # Optional
+DEEPSEEK_API_KEY=... # Optional
+```
+
+## 🔄 Preprocessing
+
 If you are interested in reproducing our preprocessing pipelines, follow the guidelines in this section.
 
 > **Note:** The steps below are optional since you can directly download the dataset from our Hugging Face repository. If you only want to use the dataset, skip to the next section. The following steps are intended for reproducibility purposes.
 
 ---
-
-## 🔄 Preprocessing
 
 ### 1️⃣ Download Exam Data
 First, download all the university exams from our [Google Drive repository](https://drive.google.com/drive/folders/1_yFth-GrB8qManGn0GZT5FNidCrhZKBA?usp=sharing).
@@ -76,19 +99,6 @@ python3 -m src.preprocessing.push_data_hf \
 
 ## 🚀 Quick Start
 
-### 🔧 Requirements
-Ensure that **Java JDK 21** and **JUnit 5** are installed:
-
-```bash
-apt-get update && apt-get install -y openjdk-21-jdk
-```
-
-Our experiments were run using the following JUnit version:
-
-```
-junit-platform-console-standalone-1.12.1.jar
-```
-
 ### 📥 Load the Dataset
 You can load the dataset from our Hugging Face repository as follows:
 
@@ -100,11 +110,11 @@ jab = load_dataset('disi-unibo-nlp/JAB', split="test")
 ---
 
 ## 🔍 Sanity Check
-Before running experiments, ensure that:
-- All Java files are copied locally and can be compiled and executed correctly.
-- Your Java environment is set up properly.
+Before running experiments, you need that:
+- All Java files from the HF dataset are downloaded and copied locally.
+- Your Java environment is correctly set up and can compile and execute Java files.
 
-Run `sanity_check.py` to verify:
+Run [`sanity_check.py`](sanity_check.py) to handle these steps automatically:
 
 ```bash
 #!/bin/bash
