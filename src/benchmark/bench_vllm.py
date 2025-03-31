@@ -409,6 +409,13 @@ You may use the provided utility Java files as needed. Your final answer must co
             messages = [
                 {"role": "user", "content": SYS_INSTRUCTION.replace('You are an expert Java developer.', '').strip() + "\n\n" + PROMPT_TEMPLATE.format(utility_files=utility_files, test_file=test_file)}
             ]
+        
+        if "Qwen2.5-Coder" in args.model_path:
+            
+            messages = [
+                {"role": "system", "content": "You are Qwen, created by Alibaba Cloud. You are a helpful assistant."},
+                {"role": "user", "content": SYS_INSTRUCTION.replace('You are an expert Java developer.', '').strip() + "\n\n" + PROMPT_TEMPLATE.format(utility_files=utility_files, test_file=test_file)}
+            ]
        
         text = tokenizer.apply_chat_template(
             messages,
@@ -480,6 +487,10 @@ You may use the provided utility Java files as needed. Your final answer must co
             batch_data = [batch,[],[],[]]
             
             for n_round in range(args.n_rounds+1):
+                
+                if not batch_data[n_round]:
+                    break
+
                 logger.info(f"ROUND {n_round}")
                 ids = [el['id'] for el in batch_data[n_round]]
                 years = [el['id'].split("_")[0].replace("oop","").strip() for el in batch_data[n_round]]
@@ -497,11 +508,11 @@ You may use the provided utility Java files as needed. Your final answer must co
                     logger.info(f"{completion}")
                     
                     java_codes = []
-                    if "</think>" in completion:
+                    if "OlympicCoder" in MODEL_NAME and "</think>" in completion:
                         completion = completion.split("</think>")[1].strip()
-                        java_codes = extract_java_code(completion)
-                        ## add packages
-                        java_codes = [packages[id_out] + "\n\n" + code for code in java_codes]
+                    
+                    java_codes = extract_java_code(completion)
+                    java_codes = [packages[id_out] + "\n\n" + code for code in java_codes]
 
                     logger.info(f" ########### JAVA CODE ############")
                     logger.info(f"{java_codes}")
@@ -521,11 +532,11 @@ You may use the provided utility Java files as needed. Your final answer must co
 
                         if compile_errors:
                             messages[id_out].append({"role": "assistant", "content": completion.strip()})
-                            messages[id_out].append({"role": "user", "content": f"```output\n{compile_errors}\n```"})
+                            messages[id_out].append({"role": "user", "content": f"Correct the error and rewrite all the code from scratch.\n\n```output\n{compile_errors}\n```\n\n"})
 
                         elif exec_errors:
                             messages[id_out].append({"role": "assistant", "content": completion.strip()})
-                            messages[id_out].append({"role": "user", "content": f"```output\n{exec_errors}\n```"})
+                            messages[id_out].append({"role": "user", "content": f"Correct the error and rewrite all the code from scratch.\n\n```output\n{exec_errors}\n```"})
                         
                         else:
                             exam_passed = True
@@ -544,6 +555,7 @@ You may use the provided utility Java files as needed. Your final answer must co
                             batch_data[n_round+1].append({
                                 "id": ids[id_out],
                                 "prompt": text,
+                                "package": packages[id_out],
                                 "chat_history": messages[id_out]}
                             )
 
