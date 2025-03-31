@@ -5,11 +5,15 @@ import logging
 import pandas as pd
 import numpy as np 
 import json
+import argparse
+import subprocess
+
+
 from dotenv import load_dotenv
 from tqdm import tqdm
 from datasets import load_dataset, Dataset
 from vllm import LLM, SamplingParams
-from transformers import AutoTokenizer, HfArgumentParser
+from transformers import AutoTokenizer
 from huggingface_hub import login
 from typing import Optional
 from dataclasses import dataclass, field
@@ -22,28 +26,245 @@ load_dotenv()
 # Manually set the required environment variable
 os.environ["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
 
+def parse_arguments():
+    parser = argparse.ArgumentParser(description="Script Arguments")
+    
+    parser.add_argument("--model_path", type=str, default="open-r1/OlympicCoder-7B", help="Model's HF directory or local path")
+    parser.add_argument("--dataset_path", type=str, default="disi-unibo-nlp/JAB", help="Dataset HF directory")
+    parser.add_argument("--out_dir", type=str, default="./out", help="Outputs directory")
+    parser.add_argument("--max_samples", type=int, default=-1, help="Maximum number of data to process in train set. Default is -1 to process all data.")
+    parser.add_argument("--start_idx", type=int, default=0, help="Index of first prompt to process.")
+    parser.add_argument("--batch_size", type=int, default=16, help="Maximum number of data to process per batch.")
+    parser.add_argument("--cache_dir", type=str, default=None, help="Cache directory to store model weights")
+    parser.add_argument("--max_model_len", type=int, default=8000, help="Maximum input sequence length")
+    parser.add_argument("--top_p", type=float, default=1.0, help="Top p sampling.")
+    parser.add_argument("--n_out_sequences", type=int, default=1, help="Number of generated sequences per instance")
+    parser.add_argument("--n_sampling", type=int, default=1, help="Number of solutions to generate for a given prompt")
+    parser.add_argument("--temperature", type=float, default=0.0, help="Sampling temperature parameter")
+    parser.add_argument("--mode", type=str, choices=["cot", "tir"], default='cot', help="Inference mode: CoT or TIR")
+    parser.add_argument("--n_gpus", type=int, default=1, help="Number of GPUs to use for inference.")
+    parser.add_argument("--n_rounds", type=int, default=3, help="Number of rounds to use for inference.")
+    parser.add_argument("--max_tokens_cot", type=int, default=32768, help="Max number of tokens to generate in CoT prompting.")
+    parser.add_argument("--max_tokens_tir", type=int, default=1024, help="Max number of tokens to generate in TIR prompting.")
+    parser.add_argument("--year_sessions", type=str, default="", help="Specific years to consider, separated by comma. E.g: 2016,2018,2021")
+    parser.add_argument("--junit_jar", default= "lib/junit-platform-console-standalone-1.13.0-M2.jar", help="Path to the JUnit standalone JAR file.")
 
-@dataclass
-class ScriptArguments:
-    model_path: Optional[str] = field(default="open-r1/OlympicCoder-7B", metadata={"help": "model's HF directory or local path"})
-    dataset_path: Optional[str] = field(default="disi-unibo-nlp/JAB",  metadata={"help": "dataset HF directory"})
-    out_dir: Optional[str] =  field(default="./out", metadata={"help": "outputs directory"})
-    max_samples: Optional[int] = field(default=-1, metadata={"help": "Maximum number of data to process in train set. Default is -1 to process all data."})
-    start_idx: Optional[int] = field(default=0, metadata={"help": "Index of first prompt to process."})
-    batch_size: Optional[int] = field(default=16, metadata={"help": "Maximum number of data to process per batch."})
-    cache_dir: Optional[str] =  field(default=None, metadata={"help": "cache dir to store model weights"})
-    max_model_len: Optional[int] = field(default=8000, metadata={"help": "Maximum input sequence length"})
-    top_p: Optional[float] = field(default=1.0, metadata={"help": "Top p sampling."})
-    n_out_sequences: Optional[int] = field(default=1, metadata={"help": "Number of generated sequences per instance"})
-    n_sampling: Optional[int] = field(default=1, metadata={"help": "Number of solutions to generate for a given prompt"})
-    temperature: Optional[float] = field(default=0.0, metadata={"help": "Sampling temperature parameter"})
-    mode: Optional[str] = field(default='cot', metadata={"help": "Inference mode: CoT or TIR", "choices":["cot", "tir"]})
-    text_only: Optional[bool] = field(default=True, metadata={"help": 'whether to consider only textual question without images.'})
-    n_gpus: Optional[int] = field(default=1, metadata={"help": "Number of gpus to use for inference."})
-    n_rounds: Optional[int] = field(default=3, metadata={"help": "Number of gpus to use for inference."})
-    max_tokens_cot: Optional[int] = field(default=32768, metadata={"help": "max number of tokens to generate in CoT prompting."})
-    max_tokens_tir: Optional[int] = field(default=1024, metadata={"help": "max number of tokens to generate in TIR prompting."})
-    year_sessions: Optional[str] = field(default="", metadata={"help": "specific years to consider, separated by comma. E.g: 2016,2018,2021"})
+    return parser.parse_args()
+
+
+def create_exams(dataset, exams_dir="exams"):
+
+    for item in tqdm(dataset, desc="Creating exams"):
+        year = item['year']
+        year_dir = f"oop{year}"
+        session_dir = item['session']
+        
+        solution_dir = f"{args.out_dir}/{exams_dir}/{MODEL_NAME}/{now_dir}/{year_dir}/{session_dir}/sol1"
+
+        for k in range(args.n_out_sequences):
+            # create utils
+            for util_class in item['utility_classes']:
+                util_class_filename = util_class['filename']
+                new_folder = f"k{k}" if args.n_out_sequences > 1 else "greedy"
+                actual_sol_dir = solution_dir + f"/{new_folder}"
+                os.makedirs(actual_sol_dir, exist_ok=True)
+                with open(f'{actual_sol_dir}/{util_class_filename}', 'w') as f:
+                    f.write(util_class['content'].strip().replace('.e1;','.sol1;').replace('.sol2;','.sol1;').replace('.e2;','.sol1;').replace('.sol1;', f'.sol1.{new_folder};').replace('.sol1.Evaluation',f'.sol1.{new_folder}.Evaluation'))
+
+            # create test
+            test_filename = item['test']['filename']
+
+            with open(f'{actual_sol_dir}/{test_filename}', 'w') as f:
+                test_content = item['test']['content'].strip()
+
+                # # Replace old JUnit 4 annotations with JUnit 5 equivalents
+                # test_content = (
+                #     test_content.replace("import org.junit.Before;", "import org.junit.jupiter.api.BeforeEach;")
+                #                 .replace("import org.junit.Test;", "import org.junit.jupiter.api.Test;")
+                #                 .replace("import static org.junit.Assert.", "import static org.junit.jupiter.api.Assertions.")
+                #                 .replace("@Before", "@BeforeEach")
+                #                 .replace("@After", "@AfterEach")
+                #                 .replace("@BeforeClass", "@BeforeAll")
+                #                 .replace("@AfterClass", "@AfterAll")
+                #                 .replace("@Ignore", "@Disabled")
+                # )
+
+                # Custom replacements in your script
+                test_content = (
+                    test_content.replace('.e1;', '.sol1;')
+                                .replace('.sol2;', '.sol1;')
+                                .replace('.e2;', '.sol1;')
+                                .replace('.sol1;', f'.sol1.{new_folder};')
+                                .replace('.sol1.Evaluation', f'.sol1.{new_folder}.Evaluation')
+                )
+
+                f.write(test_content)
+            
+            # with open(f'{actual_sol_dir}/{test_filename}', 'w') as f:
+            #     test_content = item['test']['content'].strip()
+
+            #     # correct specific human errors of mispelling
+            #     if year == "2020" and session_dir == "a05":
+            #         test_content = test_content.replace("createRechargableBattery", "createRechargeableBattery")
+            #         test_content = test_content.replace("createSecureAndRechargableBattery", "createSecureAndRechargeableBattery")
+
+            #     f.write(test_content.replace('.e1;','.sol1;').replace('.sol2;','.sol1;').replace('.e2;','.sol1;').replace('.sol1;', f'.sol1.{new_folder};').replace('.sol1.Evaluation',f'.sol1.{new_folder}.Evaluation'))
+
+def compile_exam(year, session, exams_dir="exams"):
+
+    compile_errors = []
+    
+        
+    year_dir = f"oop{year}"
+    session_dir = session
+    
+    solution_dir = f"{args.out_dir}/{exams_dir}/{MODEL_NAME}/{now_dir}/{year_dir}/{session_dir}/sol1"
+
+    for k in range(args.n_out_sequences):
+        # create utils
+        for util_class in item['utility_classes']:
+            util_class_filename = util_class['filename']
+            actual_sol_dir = solution_dir + (f"/k{k}" if args.n_out_sequences > 1 else "/greedy")
+
+            bin_path = os.path.join(actual_sol_dir, "bin")
+
+            os.makedirs(bin_path, exist_ok=True)
+
+            for root, _, files in os.walk(bin_path):
+                for file in files:
+                    os.remove(os.path.join(root, file))
+
+        java_files = sorted([os.path.join(actual_sol_dir, f) for f in os.listdir(actual_sol_dir) if f.endswith(".java") and not f.startswith("Test")])
+        
+        if not java_files:
+            logger.warning(f"No Java files found in {actual_sol_dir}. Skipping.")
+            continue
+
+        logger.info(f"Compiling {len(java_files)} files in {actual_sol_dir}...")
+        compile_command = ["javac", "-cp", JUNIT_JAR, "-d", bin_path] + java_files
+
+        try:
+            subprocess.run(compile_command, check=True, text=True, capture_output=True)
+            #safe_sessions.append({"year": year, "session": session})
+        except subprocess.CalledProcessError as e:
+            err_output = e.stderr.strip().replace("\n", " ")
+            logger.error(f"Compilation failed for {actual_sol_dir}: {err_output}")
+            compile_errors.append({"year": year, "session": session, "err": err_output})
+            continue
+
+    return compile_errors
+
+# def compile_exams(dataset, exams_dir="exams"):
+
+#     compile_errors = []
+#     for item in tqdm(dataset, desc="Compiling exams"):
+#         year = item['year']
+#         year_dir = f"oop{year}"
+#         session = item['session']
+#         session_dir = item['session']
+        
+#         solution_dir = f"{args.out_dir}/{exams_dir}/{MODEL_NAME}/{now_dir}/{year_dir}/{session_dir}/sol1"
+
+#         for k in range(args.n_out_sequences):
+#             # create utils
+#             for util_class in item['utility_classes']:
+#                 util_class_filename = util_class['filename']
+#                 actual_sol_dir = solution_dir + (f"/k{k}" if args.n_out_sequences > 1 else "/greedy")
+
+#                 bin_path = os.path.join(actual_sol_dir, "bin")
+
+#                 os.makedirs(bin_path, exist_ok=True)
+
+#                 for root, _, files in os.walk(bin_path):
+#                     for file in files:
+#                         os.remove(os.path.join(root, file))
+
+#             java_files = sorted([os.path.join(actual_sol_dir, f) for f in os.listdir(actual_sol_dir) if f.endswith(".java") and not f.startswith("Test")])
+            
+#             if not java_files:
+#                 logger.warning(f"No Java files found in {actual_sol_dir}. Skipping.")
+#                 continue
+
+#             logger.info(f"Compiling {len(java_files)} files in {actual_sol_dir}...")
+#             compile_command = ["javac", "-cp", JUNIT_JAR, "-d", bin_path] + java_files
+
+#             try:
+#                 subprocess.run(compile_command, check=True, text=True, capture_output=True)
+#                 #safe_sessions.append({"year": year, "session": session})
+#             except subprocess.CalledProcessError as e:
+#                 err_output = e.stderr.strip().replace("\n", " ")
+#                 logger.error(f"Compilation failed for {actual_sol_dir}: {err_output}")
+#                 compile_errors.append({"year": year, "session": session, "err": err_output})
+#                 continue
+
+#     return compile_errors
+
+def exec_java_code(java_codes, year, session, k=None, exams_dir="exams"):
+
+    compile_errors = []
+    exec_errors = []
+
+    year_dir = f"oop{year}"
+    session_dir = session
+    
+    solution_dir = f"{args.out_dir}/{exams_dir}/{MODEL_NAME}/{now_dir}/{year_dir}/{session_dir}/sol1"
+    new_folder = f"k{k}" if args.n_out_sequences > 1 else "greedy"
+    actual_sol_dir = solution_dir + f"/{new_folder}"
+
+    bin_path = os.path.join(actual_sol_dir, "bin")
+
+    os.makedirs(bin_path, exist_ok=True)
+
+    for root, _, files in os.walk(bin_path):
+        for file in files:
+            os.remove(os.path.join(root, file))
+    
+    for code in java_codes:
+        code_filename = extract_filename(code)
+        code = code.replace('.e1;','.sol1;').replace('.sol2;','.sol1;').replace('.e2;','.sol1;').replace('.sol1;', f'.sol1.{new_folder};').replace('.sol1.Evaluation',f'.sol1.{new_folder}.Evaluation')
+        with open(os.path.join(actual_sol_dir, code_filename + ".java"), 'w') as f:
+            f.write(code)
+
+    java_files = sorted([os.path.join(actual_sol_dir, f) for f in os.listdir(actual_sol_dir) if f.endswith(".java")])
+    
+    if not java_files:
+        logger.warning(f"No Java files found in {actual_sol_dir}. Skipping.")
+        return
+
+    logger.info(f"Compiling {len(java_files)} files in {actual_sol_dir}...")
+    compile_command = ["javac", "-cp", JUNIT_JAR, "-d", bin_path] + java_files
+
+    try:
+        subprocess.run(compile_command, check=True, text=True, capture_output=True)
+    except subprocess.CalledProcessError as e:
+        err_output = e.stderr.strip().replace("\n", " ")
+        logger.error(f"Compilation failed for {actual_sol_dir}: {err_output}")
+        compile_errors.append({"year": year, "session": session, "error": err_output})
+        
+    logger.info(f"Running tests for {actual_sol_dir}...")
+    run_command = [
+        "java", "-cp", f"{bin_path}:{JUNIT_JAR}",
+        "org.junit.platform.console.ConsoleLauncher",
+        "--class-path", bin_path,
+        "--scan-class-path"
+    ]
+
+    try:
+        result = subprocess.run(run_command, capture_output=True, text=True, timeout=10)
+        logger.info(result.stdout)
+    except subprocess.SubprocessError as e:
+        logger.info(f"{actual_sol_dir}: failed with error {e}\n")
+        exec_errors.append({
+             {"year": year, "session": session, "error": result.stderr if 'result' in locals() else str(e)}
+        })
+    except TimeoutError:
+        logger.info(f"{actual_sol_dir}: timed out after 10 seconds\n")
+        exec_errors.append({
+             {"year": year, "session": session, "error": "Timeout error."}
+        })
+    
+    return compile_errors, exec_errors
+          
 
 def extract_and_remove_package_line(java_code):
     match = re.search(r'^package\s+[^\n]+;', java_code, flags=re.MULTILINE)
@@ -55,7 +276,16 @@ def extract_java_code(text):
     """Extracts Java code blocks enclosed between ```java and ```."""
     pattern = r"```java\s+([\s\S]*?)\s+```"
     matches = [match.strip() for match in re.findall(pattern, text)]
-    return matches[0] if len(matches) > 0 else ""
+    return matches if len(matches) > 0 else ""
+
+def extract_filename(java_code):
+
+    # Regex pattern to match the first class definition
+    pattern = r"(?:public|protected|private)?\s*(?:abstract\s+|final\s+)?class\s+([A-Za-z_][A-Za-z0-9_]*)\b"
+
+    match = re.search(pattern, java_code)
+    return match.group(1) if match else None
+
 
 if __name__ == "__main__":
 
@@ -77,10 +307,11 @@ if __name__ == "__main__":
     logger.addHandler(logging.StreamHandler())
 
     # parse input args
-    parser = HfArgumentParser(ScriptArguments)
-    args = parser.parse_args_into_dataclasses()[0]
+    args = parse_arguments()
+    print(args)
 
-    MODEL_NAME =  args.model_path.split("/")[-1]
+    JUNIT_JAR = args.junit_jar
+    MODEL_NAME = args.model_path.split("/")[-1]
 
     if args.n_gpus > 1: 
         import ray
@@ -121,11 +352,31 @@ if __name__ == "__main__":
     
     if args.max_samples > 0: # to use for debug
         dataset = dataset.select(range(args.max_samples))
+
+    
+    if args.mode == "tir":
+
+        logger.info("Creating exams...")
+        create_exams(dataset)
+        logger.info("Done!")
+
+        # logger.info("Compiling exams utilities...")
+        # safe_compilation = True
+        # for item in dataset:
+
+        #     compile_errors = compile_exam(year=item['year'], session=item['session'])
+        #     if compile_errors:
+        #         logger.info(f"Errors occurs during compilation of exam `{item['year']}_{item['session']}`. You need to solve such errors before you can run the code. ")
+        #         safe_compilation = False
+        #         break
+
+        # if safe_compilation:      
+        #     logger.info("Done.")
+
     
     SYS_INSTRUCTION = """You are an expert Java developer. Your task is to solve the given university-level Java exam in a single attempt, ensuring that your solution correctly passes all JUnit tests defined in the provided `Test.java` file.  
 
-You may utilize the provided utility Java files as needed. Your implementation should adhere to best coding practices, maintain efficiency, and strictly follow the expected input-output format required to pass the tests."""  
-
+You may use the provided utility Java files as needed. Your final answer must consist of one or more Java scripts, each enclosed separately between ```java and ``` in different code blocks."""
 
     prompts = []
     for i, item in enumerate(dataset):
@@ -184,33 +435,118 @@ You may utilize the provided utility Java files as needed. Your implementation s
 
     logger.info(prompts[0])
     
-    batches = [prompts[i:i+args.batch_size] for i in range(0, len(prompts), args.batch_size)]
+    if args.n_sampling > 1 and args.mode == "tir":
+        import copy
+        batches = [[copy.deepcopy(el) for _ in range(args.n_sampling)] for el in prompts]
+    else:
+        batches = [prompts[i:i+args.batch_size] for i in range(0, len(prompts), args.batch_size)]
+
 
     logger.info(f"Number of prompts: {len(prompts)}")
     logger.info(f"Number of batches: {len(batches)}")
     logger.info(f"Number of prompts in each batch: {len(batches[0])}")
 
     
+    
     os.makedirs(args.out_dir + f"/completions/{MODEL_NAME}/{now_dir}", exist_ok=True)
     for id_batch, batch in enumerate(tqdm(batches)):
-        ids = [el['id'] for el in batch]
-        input_prompts = [el['prompt'] for el in batch]
-        packages = [el['package'] for el in batch]
 
-        outputs = llm.generate(input_prompts, sampling_params, use_tqdm=False)
+        if args.mode == "cot":
 
-        for id_out, out in enumerate(outputs):
-            completions = [o.text.strip() for o in out.outputs]
-            for completion in completions:
-                if "</think>" in completion:
-                    completion = completion.split("</think>")[1].strip()
-                    completion = extract_java_code(completion)
-                    completion = packages[id_out] + "\n\n" + completion
-                else: 
-                    completion = ""
-                with open(args.out_dir + f"/completions/{MODEL_NAME}/{now_dir}/completions_{args.mode}.jsonl", 'a') as f:
-                    json.dump({"id": ids[id_out], "completion": completion}, f, ensure_ascii=False)
-                    f.write('\n')
+            ids = [el['id'] for el in batch]
+            input_prompts = [el['prompt'] for el in batch]
+            packages = [el['package'] for el in batch]
+
+            outputs = llm.generate(input_prompts, sampling_params, use_tqdm=False)
+
+            for id_out, out in enumerate(outputs):
+                completions = [o.text.strip() for o in out.outputs]
+                for completion in completions:
+                    if "OlympicCoder" in MODEL_NAME and "</think>" in completion:
+                        completion = completion.split("</think>")[1].strip()
+                        completion = extract_java_code(completion)
+                        completion = packages[id_out] + "\n\n" + completion
+                    elif "Qwen2.5-Coder-7B-Instruct" in MODEL_NAME:
+                        completion = extract_java_code(completion)
+                        completion = packages[id_out] + "\n\n" + completion
+                    else: 
+                        completion = ""
+                    with open(args.out_dir + f"/completions/{MODEL_NAME}/{now_dir}/completions_{args.mode}.jsonl", 'a') as f:
+                        json.dump({"id": ids[id_out], "completion": completion}, f, ensure_ascii=False)
+                        f.write('\n')
+
+        elif args.mode == "tir":
+
+            batch_data = [batch,[],[],[]]
+            
+            for n_round in range(args.n_rounds+1):
+                logger.info(f"ROUND {n_round}")
+                ids = [el['id'] for el in batch_data[n_round]]
+                years = [el['id'].split("_")[0].replace("oop","").strip() for el in batch_data[n_round]]
+                sessions = [el['id'].split("_")[1].strip() for el in batch_data[n_round]]
+                packages = [el['package'] for el in batch_data[n_round]]
+                input_prompts = [el['prompt'] for el in batch_data[n_round]]
+                messages = [el['chat_history'] for el in batch_data[n_round]]
+
+                #print("PROMPTS:", input_prompts)
+                outputs = llm.generate(input_prompts, sampling_params, use_tqdm=False)
+                for id_out, out in enumerate(outputs):
+                    completion = out.outputs[0].text
+                    logger.info(f" ########### COMPLETION ############")
+
+                    logger.info(f"{completion}")
+                    
+                    java_codes = []
+                    if "</think>" in completion:
+                        completion = completion.split("</think>")[1].strip()
+                        java_codes = extract_java_code(completion)
+                        ## add packages
+                        java_codes = [packages[id_out] + "\n\n" + code for code in java_codes]
+
+                    logger.info(f" ########### JAVA CODE ############")
+                    logger.info(f"{java_codes}")
+                    exam_passed = False
+
+                    if n_round == args.n_rounds: # answer found or reached max possible rounds
+                        
+                        messages[id_out].append({"role": "assistant", "content": completion})
+                                 
+                        with open(args.out_dir + f"/completions/{MODEL_NAME}/completions_{args.mode}.jsonl", 'a') as f:
+                            json.dump({"id": ids[id_out], "code": java_codes, "compile_errors": compile_errors, "exec_errors": exec_errors, "messages": messages[id_out]}, f, ensure_ascii=False)
+                            f.write('\n')
+
+                    elif java_codes:
+                        
+                        compile_errors, exec_errors = exec_java_code(java_codes=java_codes, year=years[id_out], session=sessions[id_out])
+
+                        if compile_errors:
+                            messages[id_out].append({"role": "assistant", "content": completion.strip()})
+                            messages[id_out].append({"role": "user", "content": f"```output\n{compile_errors}\n```"})
+
+                        elif exec_errors:
+                            messages[id_out].append({"role": "assistant", "content": completion.strip()})
+                            messages[id_out].append({"role": "user", "content": f"```output\n{exec_errors}\n```"})
+                        
+                        else:
+                            exam_passed = True
+                            with open(args.out_dir + f"/completions/{MODEL_NAME}/completions_{args.mode}.jsonl", 'a') as f:
+                                json.dump({"id": ids[id_out], "code": java_codes, "compile_errors": compile_errors, "exec_errors": exec_errors, "messages": messages[id_out]}, f, ensure_ascii=False)
+                                f.write('\n')
+
+                        if not exam_passed and n_round < args.n_rounds and messages[id_out]:
+                           
+                            text = tokenizer.apply_chat_template(
+                                messages[id_out],
+                                tokenize=False,
+                                add_generation_prompt=True
+                            )
+                            
+                            batch_data[n_round+1].append({
+                                "id": ids[id_out],
+                                "prompt": text,
+                                "chat_history": messages[id_out]}
+                            )
+
 
     """
     if args.n_sampling > 1 and args.mode == "tir":
