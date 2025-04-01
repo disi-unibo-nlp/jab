@@ -61,11 +61,12 @@ def create_exams(dataset, exams_dir="exams"):
         
         solution_dir = f"{args.out_dir}/{exams_dir}/{MODEL_NAME}/{now_dir}/{year_dir}/{session_dir}/sol1"
 
-        for k in range(args.n_out_sequences):
+        range_to_consider = range(args.n_out_sequences) if args.mode != "tir" else range(args.n_sampling)
+        for k in range_to_consider:
             # create utils
             for util_class in item['utility_classes']:
                 util_class_filename = util_class['filename']
-                new_folder = f"k{k}" if args.n_out_sequences > 1 else "greedy"
+                new_folder = f"k{k}" if len(range_to_consider) > 1 else "pass1"
                 actual_sol_dir = solution_dir + f"/{new_folder}"
                 os.makedirs(actual_sol_dir, exist_ok=True)
                 with open(f"{actual_sol_dir}/{util_class_filename}", "w") as f:
@@ -119,12 +120,13 @@ def compile_exam(year, session, exams_dir="exams"):
     session_dir = session
     
     solution_dir = f"{args.out_dir}/{exams_dir}/{MODEL_NAME}/{now_dir}/{year_dir}/{session_dir}/sol1"
+    range_to_consider = range(args.n_out_sequences) if arg.mode != "tir" else range(args.n_sampling)
 
-    for k in range(args.n_out_sequences):
+    for k in range_to_consider:
         # create utils
         for util_class in item['utility_classes']:
             util_class_filename = util_class['filename']
-            actual_sol_dir = solution_dir + (f"/k{k}" if args.n_out_sequences > 1 else "/greedy")
+            actual_sol_dir = solution_dir + (f"/k{k}" if len(range_to_consider) > 1 else "/pass1")
 
             bin_path = os.path.join(actual_sol_dir, "bin")
 
@@ -208,7 +210,7 @@ def exec_java_code(java_codes, year, session, k=None, exams_dir="exams"):
     session_dir = session
     
     solution_dir = f"{args.out_dir}/{exams_dir}/{MODEL_NAME}/{now_dir}/{year_dir}/{session_dir}/sol1"
-    new_folder = f"k{k}" if args.n_out_sequences > 1 else "greedy"
+    new_folder = f"k{k}" if not k is None else "pass1"
     actual_sol_dir = solution_dir + f"/{new_folder}"
 
     bin_path = os.path.join(actual_sol_dir, "bin")
@@ -501,7 +503,15 @@ You may use the provided utility Java files as needed. Your final answer must co
         elif args.mode == "tir":
 
             batch_data = [batch,[],[],[]]
+
+            if args.mode == "tir" and args.n_sampling > 1:
+                num_attempts = args.n_sampling
+            elif args.mode == "cot" and args.n_out_sequences > 1:
+                num_attempts = args.n_out_sequences
+            else:
+                num_attempts = 1
             
+
             for n_round in range(args.n_rounds+1):
                 
                 if not batch_data[n_round]:
@@ -537,7 +547,7 @@ You may use the provided utility Java files as needed. Your final answer must co
 
                     if java_codes:
                         
-                        compile_errors, exec_errors = exec_java_code(java_codes=java_codes, year=years[id_out], session=sessions[id_out])
+                        compile_errors, exec_errors = exec_java_code(java_codes=java_codes, year=years[id_out], session=sessions[id_out], k=id_out if num_attempts > 1 else None)
 
                         if compile_errors:
                             messages[id_out].append({"role": "assistant", "content": completion.strip()})
@@ -550,8 +560,12 @@ You may use the provided utility Java files as needed. Your final answer must co
                         else:
                             exam_passed = True
                             logger.info("EXAM PASSED!")
+
+                            messages[id_out].append({"role": "assistant", "content": completion.strip()})
+                            messages[id_out].append({"role": "user", "content": f"Congrats, all tests passed!"})
+
                             with open(args.out_dir + f"/completions/{MODEL_NAME}/{now_dir}/completions_{args.mode}.jsonl", 'a') as f:
-                                json.dump({"id": ids[id_out], "code": java_codes, "compile_errors": compile_errors, "exec_errors": exec_errors, "messages": messages[id_out]}, f, ensure_ascii=False)
+                                json.dump({"id": ids[id_out], "code": java_codes, "compile_errors": compile_errors, "exec_errors": exec_errors, "messages": messages[id_out], "passed": True}, f, ensure_ascii=False)
                                 f.write('\n')
 
                         if not exam_passed and n_round < args.n_rounds and messages[id_out]:
@@ -569,12 +583,12 @@ You may use the provided utility Java files as needed. Your final answer must co
                                 "chat_history": messages[id_out]}
                             )
                     
-                    if n_round == args.n_rounds and not exam_passed: # answer found or reached max possible rounds
+                    if n_round == args.n_rounds and not exam_passed: # eached max possible rounds
                         logger.info("Exam NOT passed.")
-                        messages[id_out].append({"role": "assistant", "content": completion})
+                        #messages[id_out].append({"role": "assistant", "content": completion})
                                  
                         with open(args.out_dir + f"/completions/{MODEL_NAME}/{now_dir}/completions_{args.mode}.jsonl", 'a') as f:
-                            json.dump({"id": ids[id_out], "code": java_codes, "compile_errors": compile_errors, "exec_errors": exec_errors, "messages": messages[id_out]}, f, ensure_ascii=False)
+                            json.dump({"id": ids[id_out], "code": java_codes, "compile_errors": compile_errors, "exec_errors": exec_errors, "messages": messages[id_out], "passed": False}, f, ensure_ascii=False)
                             f.write('\n')
 
 
