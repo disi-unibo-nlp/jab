@@ -68,26 +68,26 @@ def create_exams(dataset, exams_dir="exams"):
                 new_folder = f"k{k}" if args.n_out_sequences > 1 else "greedy"
                 actual_sol_dir = solution_dir + f"/{new_folder}"
                 os.makedirs(actual_sol_dir, exist_ok=True)
-                with open(f'{actual_sol_dir}/{util_class_filename}', 'w') as f:
-                    f.write(util_class['content'].strip().replace('.e1;','.sol1;').replace('.sol2;','.sol1;').replace('.e2;','.sol1;').replace('.sol1;', f'.sol1.{new_folder};').replace('.sol1.Evaluation',f'.sol1.{new_folder}.Evaluation'))
+                with open(f"{actual_sol_dir}/{util_class_filename}", "w") as f:
+                    content = util_class["content"].strip()
 
+                    # Replace old suffixes with the new folder structure
+                    content = (content
+                        .replace(".e1;", ".sol1;")
+                        .replace(".sol2;", ".sol1;")
+                        .replace(".e2;", ".sol1;")
+                        .replace(".sol1;", f".sol1.{new_folder};")
+                        .replace(".sol1.Evaluation", f".sol1.{new_folder}.Evaluation")
+                        .replace("import static ex2015.a01a.sol1.", f"import static ex2015.a01a.sol1.{new_folder}.")
+                    )
+
+                    # Write the modified content back to the file
+                    f.write(content)
             # create test
             test_filename = item['test']['filename']
 
             with open(f'{actual_sol_dir}/{test_filename}', 'w') as f:
                 test_content = item['test']['content'].strip()
-
-                # # Replace old JUnit 4 annotations with JUnit 5 equivalents
-                # test_content = (
-                #     test_content.replace("import org.junit.Before;", "import org.junit.jupiter.api.BeforeEach;")
-                #                 .replace("import org.junit.Test;", "import org.junit.jupiter.api.Test;")
-                #                 .replace("import static org.junit.Assert.", "import static org.junit.jupiter.api.Assertions.")
-                #                 .replace("@Before", "@BeforeEach")
-                #                 .replace("@After", "@AfterEach")
-                #                 .replace("@BeforeClass", "@BeforeAll")
-                #                 .replace("@AfterClass", "@AfterAll")
-                #                 .replace("@Ignore", "@Disabled")
-                # )
 
                 # Custom replacements in your script
                 test_content = (
@@ -219,11 +219,15 @@ def exec_java_code(java_codes, year, session, k=None, exams_dir="exams"):
         for file in files:
             os.remove(os.path.join(root, file))
     
-    for code in java_codes:
+    for k, code in enumerate(java_codes):
         code_filename = extract_filename(code)
-        code = code.replace('.e1;','.sol1;').replace('.sol2;','.sol1;').replace('.e2;','.sol1;').replace('.sol1;', f'.sol1.{new_folder};').replace('.sol1.Evaluation',f'.sol1.{new_folder}.Evaluation')
-        with open(os.path.join(actual_sol_dir, code_filename + ".java"), 'w') as f:
-            f.write(code)
+        if code_filename and code_filename != "Test":
+            logger.info(f"Filename {k}: {code_filename}")
+            code = code.replace('.e1;','.sol1;').replace('.sol2;','.sol1;').replace('.e2;','.sol1;').replace('.sol1;', f'.sol1.{new_folder};').replace('.sol1.Evaluation',f'.sol1.{new_folder}.Evaluation')
+            with open(os.path.join(actual_sol_dir, code_filename + ".java"), 'w') as f:
+                f.write(code)
+        else:
+            logger.info(f"This code is not a file to consider:\n\n{code}")
 
     java_files = sorted([os.path.join(actual_sol_dir, f) for f in os.listdir(actual_sol_dir) if f.endswith(".java")])
     
@@ -240,28 +244,41 @@ def exec_java_code(java_codes, year, session, k=None, exams_dir="exams"):
         err_output = e.stderr.strip().replace("\n", " ")
         logger.error(f"Compilation failed for {actual_sol_dir}: {err_output}")
         compile_errors.append({"year": year, "session": session, "error": err_output})
-        
-    logger.info(f"Running tests for {actual_sol_dir}...")
-    run_command = [
-        "java", "-cp", f"{bin_path}:{JUNIT_JAR}",
-        "org.junit.platform.console.ConsoleLauncher",
-        "--class-path", bin_path,
-        "--scan-class-path"
-    ]
 
-    try:
-        result = subprocess.run(run_command, capture_output=True, text=True, timeout=10)
-        logger.info(result.stdout)
-    except subprocess.SubprocessError as e:
-        logger.info(f"{actual_sol_dir}: failed with error {e}\n")
-        exec_errors.append({
-             {"year": year, "session": session, "error": result.stderr if 'result' in locals() else str(e)}
-        })
-    except TimeoutError:
-        logger.info(f"{actual_sol_dir}: timed out after 10 seconds\n")
-        exec_errors.append({
-             {"year": year, "session": session, "error": "Timeout error."}
-        })
+    if not compile_errors:
+
+        logger.info(f"Running tests for {actual_sol_dir}...")
+        run_command = [
+            "java", "-cp", f"{bin_path}:{JUNIT_JAR}",
+            "org.junit.platform.console.ConsoleLauncher",
+            "--class-path", bin_path,
+            "--scan-class-path"
+        ]
+
+        try:
+            result = subprocess.run(run_command, capture_output=True, text=True, timeout=10)
+            logger.info(result.stdout)
+
+            # If the command runs but tests fail, check stderr for failures
+            if result.returncode != 0:
+                logger.info(f"{actual_sol_dir}: Tests failed with errors.")
+                
+                exec_errors.append({
+                    "year": year,
+                    "session": session,
+                    "error": "Failures " + result.stdout.split("Failures")[1].strip()
+                })
+
+        except subprocess.SubprocessError as e:
+            logger.info(f"{actual_sol_dir}: failed with error {e}\n")
+            exec_errors.append({
+                {"year": year, "session": session, "error": result.stderr if 'result' in locals() else str(e)}
+            })
+        except TimeoutError:
+            logger.info(f"{actual_sol_dir}: timed out after 10 seconds\n")
+            exec_errors.append({
+                {"year": year, "session": session, "error": "Timeout error."}
+            })
     
     return compile_errors, exec_errors
           
@@ -279,13 +296,11 @@ def extract_java_code(text):
     return matches if len(matches) > 0 else ""
 
 def extract_filename(java_code):
-
-    # Regex pattern to match the first class definition
-    pattern = r"(?:public|protected|private)?\s*(?:abstract\s+|final\s+)?class\s+([A-Za-z_][A-Za-z0-9_]*)\b"
+    # Matches class, interface, enum, annotation, and record declarations
+    pattern = r"(?:public|protected|private)?\s*(?:abstract\s+|final\s+)?(?:class|interface|enum|@interface|record)\s+([A-Za-z_][A-Za-z0-9_]*)"
 
     match = re.search(pattern, java_code)
     return match.group(1) if match else None
-
 
 if __name__ == "__main__":
 
@@ -467,6 +482,7 @@ You may use the provided utility Java files as needed. Your final answer must co
             outputs = llm.generate(input_prompts, sampling_params, use_tqdm=False)
 
             for id_out, out in enumerate(outputs):
+                
                 completions = [o.text.strip() for o in out.outputs]
                 for completion in completions:
                     if "OlympicCoder" in MODEL_NAME and "</think>" in completion:
@@ -503,6 +519,7 @@ You may use the provided utility Java files as needed. Your final answer must co
                 outputs = llm.generate(input_prompts, sampling_params, use_tqdm=False)
                 for id_out, out in enumerate(outputs):
                     completion = out.outputs[0].text
+                    logger.info(f"N ROUND: {n_round}, ID OUT: {id_out}")
                     logger.info(f" ########### COMPLETION ############")
 
                     logger.info(f"{completion}")
@@ -514,19 +531,11 @@ You may use the provided utility Java files as needed. Your final answer must co
                     java_codes = extract_java_code(completion)
                     java_codes = [packages[id_out] + "\n\n" + code for code in java_codes]
 
-                    logger.info(f" ########### JAVA CODE ############")
-                    logger.info(f"{java_codes}")
+                    #logger.info(f" ########### JAVA CODE ############")
+                    #logger.info(f"{java_codes}")
                     exam_passed = False
 
-                    if n_round == args.n_rounds: # answer found or reached max possible rounds
-                        
-                        messages[id_out].append({"role": "assistant", "content": completion})
-                                 
-                        with open(args.out_dir + f"/completions/{MODEL_NAME}/completions_{args.mode}.jsonl", 'a') as f:
-                            json.dump({"id": ids[id_out], "code": java_codes, "compile_errors": compile_errors, "exec_errors": exec_errors, "messages": messages[id_out]}, f, ensure_ascii=False)
-                            f.write('\n')
-
-                    elif java_codes:
+                    if java_codes:
                         
                         compile_errors, exec_errors = exec_java_code(java_codes=java_codes, year=years[id_out], session=sessions[id_out])
 
@@ -540,7 +549,8 @@ You may use the provided utility Java files as needed. Your final answer must co
                         
                         else:
                             exam_passed = True
-                            with open(args.out_dir + f"/completions/{MODEL_NAME}/completions_{args.mode}.jsonl", 'a') as f:
+                            logger.info("EXAM PASSED!")
+                            with open(args.out_dir + f"/completions/{MODEL_NAME}/{now_dir}/completions_{args.mode}.jsonl", 'a') as f:
                                 json.dump({"id": ids[id_out], "code": java_codes, "compile_errors": compile_errors, "exec_errors": exec_errors, "messages": messages[id_out]}, f, ensure_ascii=False)
                                 f.write('\n')
 
@@ -558,6 +568,14 @@ You may use the provided utility Java files as needed. Your final answer must co
                                 "package": packages[id_out],
                                 "chat_history": messages[id_out]}
                             )
+                    
+                    if n_round == args.n_rounds and not exam_passed: # answer found or reached max possible rounds
+                        logger.info("Exam NOT passed.")
+                        messages[id_out].append({"role": "assistant", "content": completion})
+                                 
+                        with open(args.out_dir + f"/completions/{MODEL_NAME}/{now_dir}/completions_{args.mode}.jsonl", 'a') as f:
+                            json.dump({"id": ids[id_out], "code": java_codes, "compile_errors": compile_errors, "exec_errors": exec_errors, "messages": messages[id_out]}, f, ensure_ascii=False)
+                            f.write('\n')
 
 
     """
