@@ -641,6 +641,7 @@ You may use the provided utility Java files as needed. Your final answer must co
     
     
     os.makedirs(args.out_dir + f"/completions/{MODEL_NAME}/{now_dir}", exist_ok=True)
+    start_time_all = time.time()
     for id_batch, batch in enumerate(tqdm(batches)):
 
         if args.mode == "cot":
@@ -670,4 +671,16 @@ You may use the provided utility Java files as needed. Your final answer must co
 
         elif args.mode == "tir":
             os.environ["TOKENIZERS_PARALLELISM"] = "false"
+            import time
+
+            start_time_batch = time.time()  # Record start time
             tir_mode_with_multiprocessing(args, batch, llm, sampling_params, tokenizer, logger, MODEL_NAME, now_dir, JUNIT_JAR)
+            end_time_batch = time.time()  # Record end time
+            execution_time_batch = end_time_batch - start_time_batch
+
+            logger.info(f"Execution Time Batch {id_batch}: {execution_time_batch:.4f} seconds")
+
+    end_time_all = time.time()  # Record end time
+    execution_time_all = end_time_all - start_time_all
+    logger.info("----------------------------------")
+    logger.info(f"Total Execution Time: {execution_time_all:.4f} seconds")
