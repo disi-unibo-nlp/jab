@@ -7,6 +7,10 @@ import numpy as np
 import json
 import argparse
 import subprocess
+import fcntl
+import time
+from random import uniform
+
 
 
 from dotenv import load_dotenv
@@ -156,133 +160,297 @@ def compile_exam(year, session, exams_dir="exams"):
 
     return compile_errors
 
-# def compile_exams(dataset, exams_dir="exams"):
 
-#     compile_errors = []
-#     for item in tqdm(dataset, desc="Compiling exams"):
-#         year = item['year']
-#         year_dir = f"oop{year}"
-#         session = item['session']
-#         session_dir = item['session']
-        
-#         solution_dir = f"{args.out_dir}/{exams_dir}/{MODEL_NAME}/{now_dir}/{year_dir}/{session_dir}/sol1"
-
-#         for k in range(args.n_out_sequences):
-#             # create utils
-#             for util_class in item['utility_classes']:
-#                 util_class_filename = util_class['filename']
-#                 actual_sol_dir = solution_dir + (f"/k{k}" if args.n_out_sequences > 1 else "/greedy")
-
-#                 bin_path = os.path.join(actual_sol_dir, "bin")
-
-#                 os.makedirs(bin_path, exist_ok=True)
-
-#                 for root, _, files in os.walk(bin_path):
-#                     for file in files:
-#                         os.remove(os.path.join(root, file))
-
-#             java_files = sorted([os.path.join(actual_sol_dir, f) for f in os.listdir(actual_sol_dir) if f.endswith(".java") and not f.startswith("Test")])
-            
-#             if not java_files:
-#                 logger.warning(f"No Java files found in {actual_sol_dir}. Skipping.")
-#                 continue
-
-#             logger.info(f"Compiling {len(java_files)} files in {actual_sol_dir}...")
-#             compile_command = ["javac", "-cp", JUNIT_JAR, "-d", bin_path] + java_files
-
-#             try:
-#                 subprocess.run(compile_command, check=True, text=True, capture_output=True)
-#                 #safe_sessions.append({"year": year, "session": session})
-#             except subprocess.CalledProcessError as e:
-#                 err_output = e.stderr.strip().replace("\n", " ")
-#                 logger.error(f"Compilation failed for {actual_sol_dir}: {err_output}")
-#                 compile_errors.append({"year": year, "session": session, "err": err_output})
-#                 continue
-
-#     return compile_errors
-
-def exec_java_code(java_codes, year, session, k=None, exams_dir="exams"):
-
+def exec_java_code_worker(params):
+    """Worker function for multiprocessing execution of Java code"""
+    java_code, year, session, k, exams_dir, args, MODEL_NAME, now_dir, JUNIT_JAR = params
+    
     compile_errors = []
     exec_errors = []
-
     year_dir = f"oop{year}"
     session_dir = session
     
     solution_dir = f"{args.out_dir}/{exams_dir}/{MODEL_NAME}/{now_dir}/{year_dir}/{session_dir}/sol1"
-    new_folder = f"k{k}" if not k is None else "pass1"
+    new_folder = f"k{k}" if k is not None else "pass1"
     actual_sol_dir = solution_dir + f"/{new_folder}"
-
     bin_path = os.path.join(actual_sol_dir, "bin")
-
-    os.makedirs(bin_path, exist_ok=True)
-
-    for root, _, files in os.walk(bin_path):
-        for file in files:
-            os.remove(os.path.join(root, file))
     
-    for k, code in enumerate(java_codes):
-        code_filename = extract_filename(code)
+    try:
+        os.makedirs(bin_path, exist_ok=True)
+        
+        # Clean bin directory
+        # for root, _, files in os.walk(bin_path):
+        #     for file in files:
+        #         os.remove(os.path.join(root, file))
+        
+        # Process the java code
+        code_filename = extract_filename(java_code)
         if code_filename and code_filename != "Test":
-            logger.info(f"Filename {k}: {code_filename}")
-            code = code.replace('.e1;','.sol1;').replace('.sol2;','.sol1;').replace('.e2;','.sol1;').replace('.sol1;', f'.sol1.{new_folder};').replace('.sol1.Evaluation',f'.sol1.{new_folder}.Evaluation')
+            code = java_code.replace('.e1;','.sol1;').replace('.sol2;','.sol1;').replace('.e2;','.sol1;').replace('.sol1;', f'.sol1.{new_folder};').replace('.sol1.Evaluation',f'.sol1.{new_folder}.Evaluation')
             with open(os.path.join(actual_sol_dir, code_filename + ".java"), 'w') as f:
                 f.write(code)
         else:
-            logger.info(f"This code is not a file to consider:\n\n{code}")
-
-    java_files = sorted([os.path.join(actual_sol_dir, f) for f in os.listdir(actual_sol_dir) if f.endswith(".java")])
-    
-    if not java_files:
-        logger.warning(f"No Java files found in {actual_sol_dir}. Skipping.")
-        return
-
-    logger.info(f"Compiling {len(java_files)} files in {actual_sol_dir}...")
-    compile_command = ["javac", "-cp", JUNIT_JAR, "-d", bin_path] + java_files
-
-    try:
-        subprocess.run(compile_command, check=True, text=True, capture_output=True)
-    except subprocess.CalledProcessError as e:
-        err_output = e.stderr.strip().replace("\n", " ")
-        logger.error(f"Compilation failed for {actual_sol_dir}: {err_output}")
-        compile_errors.append({"year": year, "session": session, "error": err_output})
-
-    if not compile_errors:
-
-        logger.info(f"Running tests for {actual_sol_dir}...")
+            return [], [{"year": year, "session": session, "error": "Invalid Java code format"}]
+        
+        java_files = sorted([os.path.join(actual_sol_dir, f) for f in os.listdir(actual_sol_dir) if f.endswith(".java")])
+        
+        if not java_files:
+            return [], [{"year": year, "session": session, "error": "No Java files found"}]
+        
+        # Compile
+        compile_command = ["javac", "-cp", JUNIT_JAR, "-d", bin_path] + java_files
+        try:
+            result = subprocess.run(compile_command, check=True, text=True, capture_output=True)
+        except subprocess.CalledProcessError as e:
+            err_output = e.stderr.strip().replace("\n", " ")
+            compile_errors.append({"year": year, "session": session, "error": err_output})
+            return compile_errors, []
+        
+        # Verify that compiled classes exist before attempting to run tests
+        class_files = []
+        for root, _, files in os.walk(bin_path):
+            class_files.extend([os.path.join(root, f) for f in files if f.endswith(".class")])
+        
+        if not class_files:
+            return [], [{"year": year, "session": session, "error": "Compilation produced no class files"}]
+        
+        # Run tests
         run_command = [
             "java", "-cp", f"{bin_path}:{JUNIT_JAR}",
             "org.junit.platform.console.ConsoleLauncher",
             "--class-path", bin_path,
             "--scan-class-path"
         ]
-
+        
         try:
             result = subprocess.run(run_command, capture_output=True, text=True, timeout=10)
-            logger.info(result.stdout)
-
             # If the command runs but tests fail, check stderr for failures
             if result.returncode != 0:
-                logger.info(f"{actual_sol_dir}: Tests failed with errors.")
-                
                 exec_errors.append({
                     "year": year,
                     "session": session,
-                    "error": "Failures " + result.stdout.split("Failures")[1].strip()
+                    "error": "Failures " + result.stdout.split("Failures")[1].strip() if "Failures" in result.stdout else result.stderr
                 })
-
+        except subprocess.TimeoutExpired:
+            exec_errors.append({"year": year, "session": session, "error": "Timeout error."})
         except subprocess.SubprocessError as e:
-            logger.info(f"{actual_sol_dir}: failed with error {e}\n")
-            exec_errors.append({
-                {"year": year, "session": session, "error": result.stderr if 'result' in locals() else str(e)}
-            })
-        except TimeoutError:
-            logger.info(f"{actual_sol_dir}: timed out after 10 seconds\n")
-            exec_errors.append({
-                {"year": year, "session": session, "error": "Timeout error."}
-            })
+            exec_errors.append({"year": year, "session": session, "error": str(e)})
+        except FileNotFoundError as e:
+            exec_errors.append({"year": year, "session": session, "error": f"File not found: {str(e)}"})
+    except Exception as e:
+        # Catch any other exceptions that might occur
+        return [], [{"year": year, "session": session, "error": f"Unexpected error: {str(e)}"}]
     
     return compile_errors, exec_errors
+
+
+
+def safe_write_to_jsonl(filepath, data):
+    with open(filepath, 'a') as f:
+        fcntl.flock(f, fcntl.LOCK_EX)  # Exclusive lock
+        try:
+            json.dump(data, f, ensure_ascii=False)
+            f.write('\n')
+        finally:
+            fcntl.flock(f, fcntl.LOCK_UN)  # Release lock
+
+# def safe_write_json_multiprocessing(file_path, data):
+#     """Thread-safe and process-safe function to write JSON data to a file"""
+#     max_retries = 5
+#     retry_count = 0
+    
+#     # Ensure directory exists
+#     os.makedirs(os.path.dirname(file_path), exist_ok=True)
+    
+#     while retry_count < max_retries:
+#         try:
+#             # Open the file for appending
+#             with open(file_path, 'a') as f:
+#                 # Get an exclusive lock on the file
+#                 fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+                
+#                 # Write the data
+#                 json.dump(data, f, ensure_ascii=False)
+#                 f.write('\n')
+                
+#                 # Ensure data is written to disk
+#                 f.flush()
+#                 os.fsync(f.fileno())
+                
+#                 # Release the lock
+#                 fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+                
+#             return True
+            
+#         except (IOError, OSError) as e:
+#             retry_count += 1
+#             if retry_count >= max_retries:
+#                 # Try to write to a backup file with a unique name
+#                 try:
+#                     timestamp = int(time.time() * 1000)
+#                     rand_suffix = int(uniform(1000, 9999))
+#                     backup_path = f"{file_path}.backup.{timestamp}.{rand_suffix}"
+                    
+#                     with open(backup_path, 'w') as f:
+#                         json.dump(data, f, ensure_ascii=False)
+#                         f.write('\n')
+#                         f.flush()
+#                         os.fsync(f.fileno())
+                    
+#                     return False
+#                 except Exception:
+#                     return False
+            
+#             # Wait a bit before retrying (with exponential backoff)
+#             time.sleep(0.1 * (2 ** retry_count))
+            
+#         except Exception:
+#             # For other exceptions, try the backup file approach
+#             try:
+#                 timestamp = int(time.time() * 1000)
+#                 rand_suffix = int(uniform(1000, 9999))
+#                 backup_path = f"{file_path}.backup.{timestamp}.{rand_suffix}"
+                
+#                 with open(backup_path, 'w') as f:
+#                     json.dump(data, f, ensure_ascii=False)
+#                     f.write('\n')
+#                     f.flush()
+#                     os.fsync(f.fileno())
+                
+#                 return False
+#             except Exception:
+#                 return False
+
+def exec_java_code(java_codes, year, session, k=None, exams_dir="exams"):
+    """Multiprocessing wrapper for Java code execution"""
+    from multiprocessing import Pool, cpu_count
+    
+    # Prepare parameters for each worker
+    params = []
+    for java_code in java_codes:
+        params.append((java_code, year, session, k, exams_dir, args, MODEL_NAME, now_dir, JUNIT_JAR))
+    
+    # Use as many processes as we have cores, but no more than the number of codes
+    num_processes = min(cpu_count(), len(params))
+    
+    # Execute in parallel
+    compile_errors_all = []
+    exec_errors_all = []
+    
+    with Pool(processes=num_processes) as pool:
+        results = pool.map(exec_java_code_worker, params)
+        
+        # Collect results
+        for compile_errs, exec_errs in results:
+            compile_errors_all.extend(compile_errs)
+            exec_errors_all.extend(exec_errs)
+    
+    return compile_errors_all, exec_errors_all
+
+
+# Modification for the main code that uses exec_java_code
+def tir_mode_with_multiprocessing(args, batch, llm, sampling_params, tokenizer, logger, MODEL_NAME, now_dir, JUNIT_JAR):
+    batch_data = [batch, [], [], []]
+    
+    num_attempts = args.n_sampling if args.n_sampling > 1 else 1
+    
+    for n_round in range(args.n_rounds + 1):
+        if not batch_data[n_round]:
+            break
+            
+        logger.info(f"ROUND {n_round}")
+        ids = [el['id'] for el in batch_data[n_round]]
+        years = [el['id'].split("_")[0].replace("oop","").strip() for el in batch_data[n_round]]
+        sessions = [el['id'].split("_")[1].strip() for el in batch_data[n_round]]
+        packages = [el['package'] for el in batch_data[n_round]]
+        input_prompts = [el['prompt'] for el in batch_data[n_round]]
+        messages = [el['chat_history'] for el in batch_data[n_round]]
+        
+        outputs = llm.generate(input_prompts, sampling_params, use_tqdm=False)
+        
+        # Process outputs and compile/execute Java code (sequential part)
+        for id_out, out in enumerate(outputs):
+            completion = out.outputs[0].text
+            logger.info(f"N ROUND: {n_round}, ID OUT: {id_out}")
+            logger.info(f" ########### COMPLETION ############")
+            logger.info(f"{completion}")
+            
+            java_codes = []
+            if "OlympicCoder" in MODEL_NAME and "</think>" in completion:
+                completion = completion.split("</think>")[1].strip()
+            
+            java_codes = extract_java_code(completion)
+            java_codes = [packages[id_out] + "\n\n" + code for code in java_codes]
+            
+            exam_passed = False
+            
+            if java_codes:
+                # Use the multiprocessing exec_java_code function
+                compile_errors, exec_errors = exec_java_code(
+                    java_codes=java_codes, 
+                    year=years[id_out], 
+                    session=sessions[id_out], 
+                    k=id_out if num_attempts > 1 else None
+                )
+            else:
+                # No Java code found - record this as an error
+                compile_errors = [{"year": years[id_out], "session": sessions[id_out], "error": "No valid Java code found in completion"}]  
+            
+            if compile_errors:
+                messages[id_out].append({"role": "assistant", "content": completion.strip()})
+                messages[id_out].append({"role": "user", "content": f"Correct the compilation error. Rewrite your code from scratch while ensuring correctness.\n\n```output\n{compile_errors}\n```\n"})
+            
+            elif exec_errors:
+                messages[id_out].append({"role": "assistant", "content": completion.strip()})
+                messages[id_out].append({"role": "user", "content": f"Correct the runtime error. Modify only the necessary sections while preserving the rest of your code. Ensure that your response includes your full corrected code.\n\n```output\n{exec_errors}\n```"})
+            
+            else:
+                exam_passed = True
+                logger.info("EXAM PASSED!")
+                
+                messages[id_out].append({"role": "assistant", "content": completion.strip()})
+                messages[id_out].append({"role": "user", "content": f"Congrats, all tests passed!"})
+                
+                    
+                output_file = args.out_dir + f"/completions/{MODEL_NAME}/{now_dir}/completions_{args.mode}.jsonl"
+
+                result_data = {
+                    "id": ids[id_out], 
+                    "code": java_codes, 
+                    "compile_errors": compile_errors, 
+                    "exec_errors": exec_errors, 
+                    "messages": messages[id_out], 
+                    "passed": True
+                }
+                safe_write_to_jsonl(output_file, result_data)
+            
+            if not exam_passed and n_round < args.n_rounds and messages[id_out]:
+                text = tokenizer.apply_chat_template(
+                    messages[id_out],
+                    tokenize=False,
+                    add_generation_prompt=True
+                )
+                
+                batch_data[n_round+1].append({
+                    "id": ids[id_out],
+                    "prompt": text,
+                    "package": packages[id_out],
+                    "chat_history": messages[id_out]
+                })
+            
+            if n_round == args.n_rounds and not exam_passed:  # reached max possible rounds
+                logger.info("Exam NOT passed.")
+                
+                output_file = args.out_dir + f"/completions/{MODEL_NAME}/{now_dir}/completions_{args.mode}.jsonl"
+                result_data = {
+                    "id": ids[id_out], 
+                    "code": java_codes, 
+                    "compile_errors": compile_errors, 
+                    "exec_errors": exec_errors, 
+                    "messages": messages[id_out], 
+                    "passed": False
+                }
+                safe_write_to_jsonl(output_file, result_data)
           
 
 def extract_and_remove_package_line(java_code):
@@ -501,206 +669,5 @@ You may use the provided utility Java files as needed. Your final answer must co
                         f.write('\n')
 
         elif args.mode == "tir":
-
-            batch_data = [batch,[],[],[]]
-
-            if args.mode == "tir" and args.n_sampling > 1:
-                num_attempts = args.n_sampling
-            elif args.mode == "cot" and args.n_out_sequences > 1:
-                num_attempts = args.n_out_sequences
-            else:
-                num_attempts = 1
-            
-
-            for n_round in range(args.n_rounds+1):
-                
-                if not batch_data[n_round]:
-                    break
-
-                logger.info(f"ROUND {n_round}")
-                ids = [el['id'] for el in batch_data[n_round]]
-                years = [el['id'].split("_")[0].replace("oop","").strip() for el in batch_data[n_round]]
-                sessions = [el['id'].split("_")[1].strip() for el in batch_data[n_round]]
-                packages = [el['package'] for el in batch_data[n_round]]
-                input_prompts = [el['prompt'] for el in batch_data[n_round]]
-                messages = [el['chat_history'] for el in batch_data[n_round]]
-
-                #print("PROMPTS:", input_prompts)
-                outputs = llm.generate(input_prompts, sampling_params, use_tqdm=False)
-                for id_out, out in enumerate(outputs):
-                    completion = out.outputs[0].text
-                    logger.info(f"N ROUND: {n_round}, ID OUT: {id_out}")
-                    logger.info(f" ########### COMPLETION ############")
-
-                    logger.info(f"{completion}")
-                    
-                    java_codes = []
-                    if "OlympicCoder" in MODEL_NAME and "</think>" in completion:
-                        completion = completion.split("</think>")[1].strip()
-                    
-                    java_codes = extract_java_code(completion)
-                    java_codes = [packages[id_out] + "\n\n" + code for code in java_codes]
-
-                    #logger.info(f" ########### JAVA CODE ############")
-                    #logger.info(f"{java_codes}")
-                    exam_passed = False
-
-                    if java_codes:
-                        
-                        compile_errors, exec_errors = exec_java_code(java_codes=java_codes, year=years[id_out], session=sessions[id_out], k=id_out if num_attempts > 1 else None)
-
-                        if compile_errors:
-                            messages[id_out].append({"role": "assistant", "content": completion.strip()})
-                            messages[id_out].append({"role": "user", "content": f"Correct the error and rewrite all the code from scratch.\n\n```output\n{compile_errors}\n```\n\n"})
-
-                        elif exec_errors:
-                            messages[id_out].append({"role": "assistant", "content": completion.strip()})
-                            messages[id_out].append({"role": "user", "content": f"Correct the error and rewrite all the code from scratch.\n\n```output\n{exec_errors}\n```"})
-                        
-                        else:
-                            exam_passed = True
-                            logger.info("EXAM PASSED!")
-
-                            messages[id_out].append({"role": "assistant", "content": completion.strip()})
-                            messages[id_out].append({"role": "user", "content": f"Congrats, all tests passed!"})
-
-                            with open(args.out_dir + f"/completions/{MODEL_NAME}/{now_dir}/completions_{args.mode}.jsonl", 'a') as f:
-                                json.dump({"id": ids[id_out], "code": java_codes, "compile_errors": compile_errors, "exec_errors": exec_errors, "messages": messages[id_out], "passed": True}, f, ensure_ascii=False)
-                                f.write('\n')
-
-                        if not exam_passed and n_round < args.n_rounds and messages[id_out]:
-                           
-                            text = tokenizer.apply_chat_template(
-                                messages[id_out],
-                                tokenize=False,
-                                add_generation_prompt=True
-                            )
-                            
-                            batch_data[n_round+1].append({
-                                "id": ids[id_out],
-                                "prompt": text,
-                                "package": packages[id_out],
-                                "chat_history": messages[id_out]}
-                            )
-                    
-                    if n_round == args.n_rounds and not exam_passed: # eached max possible rounds
-                        logger.info("Exam NOT passed.")
-                        #messages[id_out].append({"role": "assistant", "content": completion})
-                                 
-                        with open(args.out_dir + f"/completions/{MODEL_NAME}/{now_dir}/completions_{args.mode}.jsonl", 'a') as f:
-                            json.dump({"id": ids[id_out], "code": java_codes, "compile_errors": compile_errors, "exec_errors": exec_errors, "messages": messages[id_out], "passed": False}, f, ensure_ascii=False)
-                            f.write('\n')
-
-
-    """
-    if args.n_sampling > 1 and args.mode == "tir":
-        import copy
-        batches = [[copy.deepcopy(el) for _ in range(args.n_sampling)] for el in prompts]
-    else:
-        batches = [prompts[i:i+args.batch_size] for i in range(0, len(prompts), args.batch_size)]
-
-    logger.info(f"Number of prompts: {len(prompts)}")
-    logger.info(f"Number of batches: {len(batches)}")
-    logger.info(f"Number of prompts in each batch: {len(batches[0])}")
-
-    
-    os.makedirs(args.out_dir + f"/completions/{MODEL_NAME}", exist_ok=True)
-    for id_batch, batch in enumerate(tqdm(batches)):
-
-        if args.mode == "cot":
-            ids = [el['id'] for el in batch]
-            input_prompts = [el['prompt'] for el in batch]
-            gold_answers = [el['answer'] for el in batch]
-
-            outputs = llm.generate(input_prompts, sampling_params, use_tqdm=False)
-
-            for id_out, out in enumerate(outputs):
-                completions = [o.text.strip() for o in out.outputs]
-                for completion in completions:
-                    with open(args.out_dir + f"/completions/{MODEL_NAME}/completions_{args.mode}.jsonl", 'a') as f:
-                        json.dump({"id": ids[id_out], "gold_answer": gold_answers[id_out], "final_answer": extract_answer(completion), "reasoning": completion}, f, ensure_ascii=False)
-                        f.write('\n')
-
-        elif args.mode == "tir":
-            #print("MODE:", args.mode)
-            batch_data = [batch,[],[],[]]
-            id_prompt = batch[0]['id']
-            gold_answer = batch[0]['answer']
-            for n_round in range(args.n_rounds+1):
-                input_prompts = [el['prompt'] for el in batch_data[n_round]]
-                messages = [el['chat_history'] for el in batch_data[n_round]]
-                #print("PROMPTS:", input_prompts)
-                outputs = llm.generate(input_prompts, sampling_params, use_tqdm=False)
-                for id_out, out in enumerate(outputs):
-                    completion = out.outputs[0].text
-                    #print("COMPLETION:", completion)
-                    if extract_answer(completion).strip() or n_round == args.n_rounds: # answer found or reached max possible rounds
-                        
-                        messages[id_out].append({"role": "assistant", "content": completion})
-                        if "tora" in args.model_path:
-                            text = ""
-                            for j, msg in enumerate(messages[id_out]):
-                                
-                                if msg["role"] == "user":
-                                    if j == 0:
-                                        msg_content = msg['content'].replace("Solution:", "").strip()
-                                        text += f"Question: {msg_content}\n\n"
-                                    else:
-                                        text += (msg['content'].strip() + "\n")
-
-                                elif msg['role'] == "assistant": 
-                                    if j == 1:
-                                        text += f"Solution:\n{msg['content'].strip()}\n"
-                                    else:
-                                        text += (msg['content'].strip() + "\n")
-                                
-                            logger.info(f"Conversation:\n{text}")
-                            logger.info(".....................................\n")
-                        
-                        with open(args.out_dir + f"/completions/{model_path}/completions_{args.mode}.jsonl", 'a') as f:
-                            json.dump({"id": id_prompt, "gold_answer": gold_answer, "final_answer": extract_answer(completion), "messages": messages[id_out]}, f, ensure_ascii=False)
-                            f.write('\n')
-
-                    elif "```python" in completion or "deepseek-math" in args.model_path:
-                        
-                        response = completion.split("```python")[1].split("```")[0] if "```python" in completion else completion.strip()
-                        if response.strip():
-                            output = exec_code_with_timeout(response, timeout=5)
-                            output = tuple(output.values()) if isinstance(output, dict) else output
-                            
-                        
-                        messages[id_out].append({"role": "assistant", "content": completion.strip()})
-                        messages[id_out].append({"role": "user", "content": f"```output\n{output.strip()}\n```"})
-                        
-                        if n_round < args.n_rounds and messages[id_out]:
-                            
-                            if "tora" in args.model_path:
-                                text = ""
-                                for j, msg in enumerate(messages[id_out]):
-                                    
-                                    if msg["role"] == "user":
-                                        if j == 0:
-                                            msg_content = msg['content'].replace("Solution:", "").strip()
-                                            text += f"Question: {msg_content}\n\n"
-                                        else:
-                                            text += (msg['content'] + "\n")
-
-                                    elif msg['role'] == "assistant": 
-                                        if j == 1:
-                                            text += f"Solution:\n{msg['content'].strip()}\n"
-                                        else:
-                                            text += (msg['content'].strip() + "\n")
-                                    
-                            else:
-                                text = tokenizer.apply_chat_template(
-                                    messages[id_out],
-                                    tokenize=False,
-                                    add_generation_prompt=True
-                                )
-                            
-                            batch_data[n_round+1].append({
-                                "id": id_prompt,
-                                "prompt": text,
-                                "chat_history": messages[id_out]}
-                            )
-    """
+            os.environ["TOKENIZERS_PARALLELISM"] = "false"
+            tir_mode_with_multiprocessing(args, batch, llm, sampling_params, tokenizer, logger, MODEL_NAME, now_dir, JUNIT_JAR)
