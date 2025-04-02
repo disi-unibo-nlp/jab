@@ -470,9 +470,7 @@ You may use the provided utility Java files as needed. Your final answer must co
     logger.info(f"Number of batches: {len(batches)}")
     logger.info(f"Number of prompts in each batch: {len(batches[0])}")
 
-    
-    
-    os.makedirs(args.out_dir + f"/completions/{MODEL_NAME}/{now_dir}", exist_ok=True)
+    os.makedirs(args.out_dir + f"/completions/{MODEL_NAME}/{args.mode}/{now_dir}", exist_ok=True)
     start_time_all = time.time()
     for id_batch, batch in enumerate(tqdm(batches)):
         start_time_batch = time.time()  # Record start time
@@ -487,18 +485,20 @@ You may use the provided utility Java files as needed. Your final answer must co
             for id_out, out in enumerate(outputs):
                 
                 completions = [o.text.strip() for o in out.outputs]
+
                 for completion in completions:
+
+                    java_codes = []
                     if "OlympicCoder" in MODEL_NAME and "</think>" in completion:
                         completion = completion.split("</think>")[1].strip()
-                        completion = extract_java_code(completion)
-                        completion = packages[id_out] + "\n\n" + completion
-                    elif "Qwen2.5-Coder-7B-Instruct" in MODEL_NAME:
-                        completion = extract_java_code(completion)
-                        completion = packages[id_out] + "\n\n" + completion
-                    else: 
-                        completion = ""
-                    with open(args.out_dir + f"/completions/{MODEL_NAME}/{now_dir}/completions_{args.mode}.jsonl", 'a') as f:
-                        json.dump({"id": ids[id_out], "completion": completion}, f, ensure_ascii=False)
+                    
+                    java_codes = extract_java_code(completion)
+                    java_codes = [packages[id_out] + "\n\n" + code for code in java_codes]
+            
+                    java_codes = [{'filename': extract_filename(java_code), "content": java_code} for java_code in java_codes]
+
+                    with open(args.out_dir + f"/completions/{MODEL_NAME}/{args.mode}/{now_dir}/completions_{args.mode}.jsonl", 'a') as f:
+                        json.dump({"id": ids[id_out], "code": java_codes, "completion": completion}, f, ensure_ascii=False)
                         f.write('\n')
 
         elif args.mode == "tir":
@@ -563,7 +563,7 @@ You may use the provided utility Java files as needed. Your final answer must co
                         messages[id_out].append({"role": "assistant", "content": completion.strip()})
                         messages[id_out].append({"role": "user", "content": f"Congrats, all tests passed!"})
 
-                        with open(args.out_dir + f"/completions/{MODEL_NAME}/{now_dir}/completions_{args.mode}.jsonl", 'a') as f:
+                        with open(args.out_dir + f"/completions/{MODEL_NAME}/{args.mode}/{now_dir}/completions_{args.mode}.jsonl", 'a') as f:
                             json.dump({"id": ids[id_out], "code": java_codes, "compile_errors": compile_errors, "exec_errors": exec_errors, "messages": messages[id_out], "passed": True}, f, ensure_ascii=False)
                             f.write('\n')
 
@@ -586,7 +586,7 @@ You may use the provided utility Java files as needed. Your final answer must co
                         logger.info("Exam NOT passed.")
                         #messages[id_out].append({"role": "assistant", "content": completion})
                                  
-                        with open(args.out_dir + f"/completions/{MODEL_NAME}/{now_dir}/completions_{args.mode}.jsonl", 'a') as f:
+                        with open(args.out_dir + f"/completions/{MODEL_NAME}/{args.mode}/{now_dir}/completions_{args.mode}.jsonl", 'a') as f:
                             json.dump({"id": ids[id_out], "code": java_codes, "compile_errors": compile_errors, "exec_errors": exec_errors, "messages": messages[id_out], "passed": False}, f, ensure_ascii=False)
                             f.write('\n')
         
