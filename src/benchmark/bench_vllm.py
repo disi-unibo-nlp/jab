@@ -7,7 +7,7 @@ import numpy as np
 import json
 import argparse
 import subprocess
-
+import time
 
 from dotenv import load_dotenv
 from tqdm import tqdm
@@ -317,7 +317,7 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG,
                         datefmt="%m/%d/%Y %H:%M:%S",
                         format="[%(asctime)s] {%(filename)s:%(lineno)d} %(levelname)s - %(message)s",
-                        filename="output.log",
+                        filename="output_single_proc.log",
                         filemode='w')
 
     logger = logging.getLogger(__name__)
@@ -473,8 +473,9 @@ You may use the provided utility Java files as needed. Your final answer must co
     
     
     os.makedirs(args.out_dir + f"/completions/{MODEL_NAME}/{now_dir}", exist_ok=True)
+    start_time_all = time.time()
     for id_batch, batch in enumerate(tqdm(batches)):
-
+        start_time_batch = time.time()  # Record start time
         if args.mode == "cot":
 
             ids = [el['id'] for el in batch]
@@ -501,6 +502,8 @@ You may use the provided utility Java files as needed. Your final answer must co
                         f.write('\n')
 
         elif args.mode == "tir":
+            
+            
 
             batch_data = [batch,[],[],[]]
 
@@ -586,3 +589,13 @@ You may use the provided utility Java files as needed. Your final answer must co
                         with open(args.out_dir + f"/completions/{MODEL_NAME}/{now_dir}/completions_{args.mode}.jsonl", 'a') as f:
                             json.dump({"id": ids[id_out], "code": java_codes, "compile_errors": compile_errors, "exec_errors": exec_errors, "messages": messages[id_out], "passed": False}, f, ensure_ascii=False)
                             f.write('\n')
+        
+        end_time_batch = time.time()  # Record end time
+        execution_time_batch = end_time_batch - start_time_batch
+
+        logger.info(f"Execution Time Batch {id_batch}: {execution_time_batch:.4f} seconds")
+    
+    end_time_all = time.time()  # Record end time
+    execution_time_all = end_time_all - start_time_all
+    logger.info("----------------------------------")
+    logger.info(f"Total Execution Time: {execution_time_all:.4f} seconds")
