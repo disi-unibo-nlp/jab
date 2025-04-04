@@ -466,11 +466,14 @@ You may use the provided utility Java files as needed. Your final answer must co
         batches = [prompts[i:i+args.batch_size] for i in range(0, len(prompts), args.batch_size)]
 
 
-    logger.info(f"Number of prompts: {len(prompts)}")
+    logger.info(f"Number of prompts: {len(prompts) * args.n_out_sequences}")
     logger.info(f"Number of batches: {len(batches)}")
-    logger.info(f"Number of prompts in each batch: {len(batches[0])}")
+    logger.info(f"Number of prompts in each batch: {len(batches[0]) * args.n_out_sequences}")
 
-    os.makedirs(args.out_dir + f"/completions/{MODEL_NAME}/{args.mode}/{now_dir}", exist_ok=True)
+    pass_k = args.n_out_sequences if args.mode == "cot" else args.n_sampling
+    out_path = args.out_dir + f"/completions/{MODEL_NAME}/{args.mode}/pass{pass_k}/{now_dir}"
+    os.makedirs(out_path, exist_ok=True)
+
     start_time_all = time.time()
     for id_batch, batch in enumerate(tqdm(batches)):
         start_time_batch = time.time()  # Record start time
@@ -497,7 +500,7 @@ You may use the provided utility Java files as needed. Your final answer must co
             
                     java_codes = [{'filename': extract_filename(java_code), "content": java_code} for java_code in java_codes]
 
-                    with open(args.out_dir + f"/completions/{MODEL_NAME}/{args.mode}/{now_dir}/completions_{args.mode}.jsonl", 'a') as f:
+                    with open(f"{out_path}/completions_{args.mode}.jsonl", 'a') as f:
                         json.dump({"id": ids[id_out], "code": java_codes, "completion": completion}, f, ensure_ascii=False)
                         f.write('\n')
 
@@ -563,7 +566,7 @@ You may use the provided utility Java files as needed. Your final answer must co
                         messages[id_out].append({"role": "assistant", "content": completion.strip()})
                         messages[id_out].append({"role": "user", "content": f"Congrats, all tests passed!"})
 
-                        with open(args.out_dir + f"/completions/{MODEL_NAME}/{args.mode}/{now_dir}/completions_{args.mode}.jsonl", 'a') as f:
+                        with open(f"{out_path}/completions_{args.mode}.jsonl", 'a') as f:
                             json.dump({"id": ids[id_out], "code": java_codes, "compile_errors": compile_errors, "exec_errors": exec_errors, "messages": messages[id_out], "passed": True}, f, ensure_ascii=False)
                             f.write('\n')
 
@@ -586,7 +589,7 @@ You may use the provided utility Java files as needed. Your final answer must co
                         logger.info("Exam NOT passed.")
                         #messages[id_out].append({"role": "assistant", "content": completion})
                                  
-                        with open(args.out_dir + f"/completions/{MODEL_NAME}/{args.mode}/{now_dir}/completions_{args.mode}.jsonl", 'a') as f:
+                        with open(f"{out_path}/completions_{args.mode}.jsonl", 'a') as f:
                             json.dump({"id": ids[id_out], "code": java_codes, "compile_errors": compile_errors, "exec_errors": exec_errors, "messages": messages[id_out], "passed": False}, f, ensure_ascii=False)
                             f.write('\n')
         
