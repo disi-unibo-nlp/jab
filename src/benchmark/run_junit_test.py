@@ -96,7 +96,8 @@ def exec_java_code(java_files):
 
     logger.info(f"Compiling {len(java_files)} files in {actual_sol_dir}...")
     compile_command = ["javac", "-cp", JUNIT_JAR, "-d", bin_path] + java_files
-
+    test_details = {}
+    
     try:
         subprocess.run(compile_command, check=True, text=True, capture_output=True)
     except subprocess.CalledProcessError as e:
@@ -125,7 +126,6 @@ def exec_java_code(java_files):
                 failed_methods = extract_failed_test_methods(result.stdout)
                 runtime_errors.append({
                     "error": "Failures " + result.stdout.split("Failures")[1].strip(),
-                    "details": test_details,
                     "fails": failed_methods
                 })
 
@@ -140,7 +140,7 @@ def exec_java_code(java_files):
                 "error": "Timeout error."
             })
 
-    return compile_errors, runtime_errors
+    return compile_errors, runtime_errors, test_details
 
 def check_mandatory_tests(item, conditions):
     cond_key = f"oop{item['year']}_{item['session']}"
@@ -215,6 +215,8 @@ def check_mandatory_tests(item, conditions):
             else:
                 item["runtime_passed_mandatory"] = False
 
+    elif item["compilation_passed"] and item["runtime_passed"]:
+        item["runtime_passed_mandatory"] = True
     else:
         item["runtime_passed_mandatory"] = False
     
@@ -272,7 +274,7 @@ if __name__ == "__main__":
     grouped_list = [{"id": k, "attempts": v} for k, v in grouped_data.items()]
 
     res_dir = os.path.dirname(args.completions_path)
-    res_file_path = res_dir + "/junit_results_2.jsonl"
+    res_file_path = res_dir + "/junit_results_3.jsonl"
     # Ensure the file is cleared at the start of execution
     open(res_file_path, "w").close() 
     
@@ -362,7 +364,7 @@ if __name__ == "__main__":
                     logger.warning(f"No Java files found in {actual_sol_dir}. Skipping.")
                     continue
                 
-                compile_errors, runtime_errors = exec_java_code(java_files)
+                compile_errors, runtime_errors, test_details = exec_java_code(java_files)
 
                 result_json = {
                     "year": year,
@@ -370,7 +372,8 @@ if __name__ == "__main__":
                     "compile_errors": compile_errors,
                     "runtime_errors": runtime_errors,
                     "compilation_passed": False if compile_errors else True,
-                    "runtime_passed": False if runtime_errors or compile_errors else True
+                    "runtime_passed": False if runtime_errors or compile_errors else True,
+                    "test_details": test_details
                 }
 
                 result_json = check_mandatory_tests(result_json, optional_conditions)
