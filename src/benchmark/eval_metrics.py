@@ -1,6 +1,6 @@
 import numpy as np 
 import pandas as pd
-from typing import Union, List
+from typing import Union, List, Literal
 import json
 import itertools
 import argparse
@@ -10,28 +10,73 @@ from collections import defaultdict
 def parse_arguments():
     parser = argparse.ArgumentParser(description="Script Arguments")
     
-    parser.add_argument("--junit_test_path", type=str, default="out/completions/Qwen2.5-Coder-7B-Instruct/cot/pass10/2025-04-03_11-10-59/junit_results_2.jsonl", help="Model's HF directory or local path")
+    parser.add_argument("--junit_test_path", type=str, default="out/completions/Qwen2.5-Coder-7B-Instruct/cot/pass10/2025-04-03_11-10-59/junit_results_3.jsonl", help="Model's HF directory or local path")
     parser.add_argument("--out_dir", type=str, default="./out", help="Outputs directory")
     parser.add_argument("--k", type=int, default=10, help="value of K in Pass@k")
 
     return parser.parse_args()
 
-def estimate_pass_at_k(
+# def estimate_pass_at_k(
+#     num_samples: Union[int, List[int]],
+#     num_correct: Union[List[int]],
+#     k: int
+# ):
+#     """
+#     Estimates pass@k of each problem and returns them in an array.
+#     """
+
+#     def estimator(n: int, c: int, k: int) -> float:
+#         """
+#         Calculates 1 - comb(n - c, k) / comb(n, k).
+#         """
+#         if n - c < k:
+#             return 1.0
+#         return 1.0 - np.prod(1.0 - k / np.arange(n - c + 1, n + 1))
+
+#     if isinstance(num_samples, int):
+#         num_samples_it = itertools.repeat(num_samples, len(num_correct))
+#     else:
+#         assert len(num_samples) == len(num_correct)
+#         num_samples_it = iter(num_samples)
+
+#     return [estimator(int(n), int(c), k) for n, c in zip(num_samples_it, num_correct)]
+
+
+def estimate_pass_k(
     num_samples: Union[int, List[int]],
-    num_correct: Union[List[int]],
-    k: int
+    num_correct: List[int],
+    k: int,
+    mode: Literal["at", "power"] = "at"
 ):
     """
-    Estimates pass@k of each problem and returns them in an array.
+    Estimates pass@k or pass^k of each problem and returns them in an array.
+
+    Args:
+        num_samples: Total number of attempts (n) per problem (single int or list).
+        num_correct: List of number of correct solutions (c) for each problem.
+        k: Number of independent trials.
+        mode: "at" for pass@k, "power" for pass^k.
+
+    Returns:
+        A list of floats representing pass@k or pass^k for each problem.
     """
 
-    def estimator(n: int, c: int, k: int) -> float:
+    def pass_at_k(n: int, c: int, k: int) -> float:
         """
-        Calculates 1 - comb(n - c, k) / comb(n, k).
+        Calculates pass@k = 1 - comb(n - c, k) / comb(n, k)
+        using a numerically stable product form.
         """
         if n - c < k:
             return 1.0
         return 1.0 - np.prod(1.0 - k / np.arange(n - c + 1, n + 1))
+
+    def pass_power_k(n: int, c: int, k: int) -> float:
+        """
+        Calculates pass^k = (c / n) ** k
+        """
+        if n == 0:
+            return 0.0
+        return (c / n) ** k
 
     if isinstance(num_samples, int):
         num_samples_it = itertools.repeat(num_samples, len(num_correct))
@@ -39,7 +84,9 @@ def estimate_pass_at_k(
         assert len(num_samples) == len(num_correct)
         num_samples_it = iter(num_samples)
 
+    estimator = pass_at_k if mode == "at" else pass_power_k
     return [estimator(int(n), int(c), k) for n, c in zip(num_samples_it, num_correct)]
+
 
 if __name__ == "__main__":
 
@@ -75,23 +122,56 @@ if __name__ == "__main__":
     num_correct_compilations = []
     num_correct_runtime = []
     num_correct_runtime_mandatory = []
-
+    all_grades = []
+    max_score = 13
     for exam_session in grouped_list:
         session_attempts = exam_session['attempts']
         compilation_passed = [attempt for attempt in session_attempts if attempt['compilation_passed']]
         runtime_passed = [attempt for attempt in session_attempts if attempt['runtime_passed']]
         runtime_passed_mandatory = [attempt for attempt in session_attempts if attempt['runtime_passed_mandatory']]
+        error_details = [attempt['test_details'] for attempt in session_attempts ]
         num_correct_compilations.append(len(compilation_passed))
         num_correct_runtime.append(len(runtime_passed))
         num_correct_runtime_mandatory.append(len(runtime_passed_mandatory))
-    
-    compilation_k = format(round(np.mean(estimate_pass_at_k(num_samples, num_correct_compilations, k)) * 100, 1), ".1f")
-    pass_k = format(round(np.mean(estimate_pass_at_k(num_samples, num_correct_runtime, k)) * 100, 1), ".1f")
-    pass_k_mandatory = format(round(np.mean(estimate_pass_at_k(num_samples, num_correct_runtime_mandatory, k)) * 100, 1), ".1f")
+
+        for err_details in error_details:
+            if err_details:
+                num_tests = err_details['tests_found']
+                test_success = err_details["tests_successful"]
+
+                if num_tests == test_success:
+                    final_grade = max_score
+                else:
+                    point_per_test = max_score / num_tests
+                    final_grade = round(test_success * point_per_test)
+
+                all_grades.append({"id": exam_session['id'], "grade": final_grade})
+            
+            else:
+                # compilation error
+                all_grades.append({"id": exam_session['id'], "grade": 0})
+
+    # pass@K       
+    compilation_k = format(round(np.mean(estimate_pass_k(num_samples, num_correct_compilations, k, mode="at")) * 100, 1), ".1f")
+    pass_k = format(round(np.mean(estimate_pass_k(num_samples, num_correct_runtime, k, mode="at")) * 100, 1), ".1f")
+    pass_k_mandatory = format(round(np.mean(estimate_pass_k(num_samples, num_correct_runtime_mandatory, k, mode="at")) * 100, 1), ".1f")
+
+    # pass^K       
+    compilation_power_k = format(round(np.mean(estimate_pass_k(num_samples, num_correct_compilations, 2, mode="power")) * 100, 1), ".1f")
+    pass_power_k = format(round(np.mean(estimate_pass_k(num_samples, num_correct_runtime, 2, mode="power")) * 100, 1), ".1f")
+    pass_power_k_mandatory = format(round(np.mean(estimate_pass_k(num_samples, num_correct_runtime_mandatory, 2, mode="power")) * 100, 1), ".1f")
+
 
     logger.info("-"*25)
     logger.info(f"Mean compilation@{k}: {compilation_k}")
     logger.info(f"Mean pass@{k} - SOFT: {pass_k_mandatory}")
     logger.info(f"Mean pass@{k} - HARD: {pass_k}")
     logger.info("-"*25)
+    
+    logger.info(f"Mean compilation^{2}: {compilation_power_k}")
+    logger.info(f"Mean pass^{2} - SOFT: {pass_power_k_mandatory}")
+    logger.info(f"Mean pass^{2} - HARD: {pass_power_k}")
+    logger.info("-"*25)
+
+    print(all_grades[:10])
     
