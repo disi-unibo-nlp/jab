@@ -3,6 +3,8 @@ import json
 import pandas as pd
 from datasets import Dataset
 from dotenv import load_dotenv
+from huggingface_hub import login
+from tqdm import tqdm
 import argparse
 
 # Load environment variables from .env file
@@ -11,6 +13,8 @@ HF_TOKEN = os.getenv("HF_TOKEN")
 
 # Assert that HF_TOKEN is set
 assert HF_TOKEN, "HF_TOKEN is required."
+
+login(token=HF_TOKEN)
 
 def parse_args():
     """
@@ -33,6 +37,32 @@ def process_dataset(input_data_path):
 
     # Convert to DataFrame
     df = pd.DataFrame(dataset)
+
+    dataset = Dataset.from_pandas(df)
+
+    new_dataset = []
+    for item in tqdm(dataset, desc="Processing items"):
+
+        for idx in range(len(item['exam'])):
+            item['exam'][idx]['content'] = item['exam'][idx]['content'].strip().replace('.e1;','.sol1;').replace('.sol2;','.sol1;').replace('.e2;','.sol1;')
+
+        # correct specific human errors of mispelling
+        if item['year'] == 2020 and item['session'] == "a05":
+            item['test']['content'] = item['test']['content'].replace("createRechargableBattery", "createRechargeableBattery")
+            item['test']['content'] = item['test']['content'].replace("createSecureAndRechargableBattery", "createSecureAndRechargeableBattery")
+            
+            for idx in range(len(item['solution'])):
+                item['solution'][idx]['content'] = item['solution'][idx]['content'].replace("createRechargableBattery", "createRechargeableBattery")
+                item['solution'][idx]['content'] = item['solution'][idx]['content'].replace("createSecureAndRechargableBattery", "createSecureAndRechargeableBattery")
+
+        item['test']['content'] = item['test']['content'].replace('.e1;','.sol1;').replace('.sol2;','.sol1;').replace('.e2;','.sol1;')
+        
+        for idx in range(len(item['solution'])):
+            item['solution'][idx]['content'] = item['solution'][idx]['content'].replace('.e1;','.sol1;').replace('.sol2;','.sol1;').replace('.e2;','.sol1;')
+
+        new_dataset.append(item)
+    
+    df = pd.DataFrame(new_dataset)
     
     # Convert 'year' column to string
     df["year"] = df["year"].astype(str)
