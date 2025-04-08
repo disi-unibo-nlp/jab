@@ -11,7 +11,7 @@ from tqdm import tqdm
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Compile and test Java exam sessions with JUnit.")
-    parser.add_argument("--junit_jar", default= "lib/junit-platform-console-standalone-1.12.1.jar", help="Path to the JUnit standalone JAR file.")
+    parser.add_argument("--junit_jar", default= "lib/junit-platform-console-standalone-1.13.0-M2.jar", help="Path to the JUnit standalone JAR file.")
     parser.add_argument("--exams_dir", default="exams",  help="Base directory containing year-wise exam folders.")
     parser.add_argument("--logs_dir", default="logs", help="Base directory containing logs.")
     parser.add_argument("--dataset_path", default="disi-unibo-nlp/JAB", help="Path to Hugging Face data repository.")
@@ -20,9 +20,9 @@ def parse_args():
 def create_exams(dataset, exams_dir):
 
     for item in tqdm(dataset, desc="Creating exams"):
-        year = item['year']
+        year = item['year'].strip()
         year_dir = f"oop{year}"
-        session_dir = item['session']
+        session_dir = item['session'].strip()
         exam_dir = f"{exams_dir}/{year_dir}/{session_dir}/e1"
         solution_dir = f"{exams_dir}/{year_dir}/{session_dir}/sol1"
         os.makedirs(exam_dir, exist_ok=True)
@@ -34,7 +34,12 @@ def create_exams(dataset, exams_dir):
             with open(f'{exam_dir}/{util_class_filename}', 'w') as f:
                 f.write(util_class['content'].strip())
             with open(f'{solution_dir}/{util_class_filename}', 'w') as f:
-                f.write(util_class['content'].strip().replace('.e1;','.sol1;').replace('.sol2;','.sol1;').replace('.e2;','.sol1;'))
+                f.write(util_class['content'].strip())#.replace('.e1;','.sol1;').replace('.sol2;','.sol1;').replace('.e2;','.sol1;'))
+
+        if year == "2021" and session_dir == "a01c":
+            logger.info("writing file.txt...")     
+            with open('./file.txt', 'w') as f:
+                f.write("15.5:aaa\n16.6:bbb\n17.7:ccc")
 
         # create test
         test_filename = item['test']['filename']
@@ -44,11 +49,11 @@ def create_exams(dataset, exams_dir):
             test_content = item['test']['content'].strip()
 
             # correct specific human errors of mispelling
-            if year == "2020" and session_dir == "a05":
-                test_content = test_content.replace("createRechargableBattery", "createRechargeableBattery")
-                test_content = test_content.replace("createSecureAndRechargableBattery", "createSecureAndRechargeableBattery")
+            # if year == "2020" and session_dir == "a05":
+            #     test_content = test_content.replace("createRechargableBattery", "createRechargeableBattery")
+            #     test_content = test_content.replace("createSecureAndRechargableBattery", "createSecureAndRechargeableBattery")
 
-            f.write(test_content.replace('.e1;','.sol1;').replace('.sol2;','.sol1;').replace('.e2;','.sol1;'))
+            f.write(test_content)#.replace('.e1;','.sol1;').replace('.sol2;','.sol1;').replace('.e2;','.sol1;'))
         
         # create solutoon
         for sol in item['solution']:
@@ -56,12 +61,12 @@ def create_exams(dataset, exams_dir):
             sol_content = sol['content'].strip()
 
             # correct specific human errors of mispelling
-            if year == "2020" and session_dir == "a05":
-                sol_content = sol_content.replace("createRechargableBattery", "createRechargeableBattery")
-                sol_content = sol_content.replace("createSecureAndRechargableBattery", "createSecureAndRechargeableBattery")
+            # if year == "2020" and session_dir == "a05":
+            #     sol_content = sol_content.replace("createRechargableBattery", "createRechargeableBattery")
+            #     sol_content = sol_content.replace("createSecureAndRechargableBattery", "createSecureAndRechargeableBattery")
 
             with open(f'{solution_dir}/{solution_filename}', 'w') as f:
-                f.write(sol_content.replace('.e1;','.sol1;').replace('.sol2;','.sol1;').replace('.e2;','.sol1;'))
+                f.write(sol_content)#.replace('.e1;','.sol1;').replace('.sol2;','.sol1;').replace('.e2;','.sol1;'))
 
 def main():
 
