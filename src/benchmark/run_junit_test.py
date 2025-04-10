@@ -16,8 +16,8 @@ load_dotenv()
 def parse_arguments():
     parser = argparse.ArgumentParser(description="Script Arguments")
     
-    parser.add_argument("--completions_path", type=str, default="out/completions/Qwen2.5-Coder-7B-Instruct/cot/pass10/2025-04-03_11-10-59/completions_cot.jsonl", help="Model's HF directory or local path")
-    parser.add_argument("--model_names", type=str, default="Qwen/Qwen2.5-Coder-7B-Instruct", help="Dataset HF directory")
+    parser.add_argument("--completions_path", type=str, default="out/completions/gemini-2.0-flash-thinking-exp-01-21/cot/pass1/2025-04-09_09-34-57/completions_cot.jsonl", help="Model's HF directory or local path")
+    parser.add_argument("--model_names", type=str, default="gemini-2.0-flash-thinking-exp-01-21", help="Dataset HF directory")
     parser.add_argument("--out_dir", type=str, default="./out", help="Outputs directory")
     parser.add_argument("--max_samples", type=int, default=-1, help="Maximum number of data to process in train set. Default is -1 to process all data.")
     parser.add_argument("--start_idx", type=int, default=0, help="Index of first prompt to process.")
@@ -25,7 +25,7 @@ def parse_arguments():
     parser.add_argument("--max_tokens_tir", type=int, default=1024, help="Max number of tokens to generate in TIR prompting.")
     parser.add_argument("--year_sessions", type=str, default="", help="Specific years to consider, separated by comma. E.g: 2016,2018,2021")
     parser.add_argument("--junit_jar", default= "lib/junit-platform-console-standalone-1.13.0-M2.jar", help="Path to the JUnit standalone JAR file.")
-    parser.add_argument("--k", type=int, default=10, help="value of K in Pass@k")
+    parser.add_argument("--k", type=int, default=1, help="value of K in Pass@k")
 
     return parser.parse_args()
 
@@ -97,7 +97,7 @@ def exec_java_code(java_files):
     logger.info(f"Compiling {len(java_files)} files in {actual_sol_dir}...")
     compile_command = ["javac", "-cp", JUNIT_JAR, "-d", bin_path] + java_files
     test_details = {}
-    
+
     try:
         subprocess.run(compile_command, check=True, text=True, capture_output=True)
     except subprocess.CalledProcessError as e:
@@ -257,7 +257,7 @@ if __name__ == "__main__":
     
     # Define the path
     model_names = args.model_names.split(",") #['DeepSeek-Coder-V2-Lite-Instruct'] #['CodeLlama-34b-Instruct-hf', "DeepSeek-Coder-V2-Lite-Instruct", "llama-3-70b-instruct-awq", "Meta-Llama-3.1-70B-Instruct-AWQ-INT4", "starcoder2-15b-instruct-v0.1"]#["codegemma-1.1-7b-it", "CodeLlama-7b-Instruct-hf", "deepseek-coder-6.7b-instruct", "Meta-Llama-3.1-8B-Instruct", "Phi-3-mini-128k-instruct"] #Codestral-22B-v0.1"
-    year_sessions = args.year_sessions.split(",") #["oop2014", "oop2015", "oop2016", "oop2017", "oop2018", "oop2019", "oop2020", "oop2021", "oop2022", "oop2023"] 
+    year_sessions = args.year_sessions.split(",") if args.year_sessions else range(2014,2025) #["oop2014", "oop2015", "oop2016", "oop2017", "oop2018", "oop2019", "oop2020", "oop2021", "oop2022", "oop2023"] 
     now_dir = args.completions_path.split("/")[-2]
 
     if args.year_sessions:
@@ -274,7 +274,7 @@ if __name__ == "__main__":
     grouped_list = [{"id": k, "attempts": v} for k, v in grouped_data.items()]
 
     res_dir = os.path.dirname(args.completions_path)
-    res_file_path = res_dir + "/junit_results_3.jsonl"
+    res_file_path = res_dir + "/junit_results.jsonl"
     # Ensure the file is cleared at the start of execution
     open(res_file_path, "w").close() 
     
@@ -286,6 +286,10 @@ if __name__ == "__main__":
             logger.info(f"Number of attempts for exam session {exam_session['id']}: {len(attempts)}")
             for k, attempt in enumerate(attempts):
                 year = attempt['id'].split("_")[0].replace("oop","").strip()
+
+                if int(year) not in year_sessions:
+                    continue
+                    
                 session = attempt['id'].split("_")[1].strip()
                 year_dir = f"oop{year}"
             
