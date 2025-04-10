@@ -8,6 +8,7 @@ import json
 import argparse
 import subprocess
 import time
+import re
 
 from dotenv import load_dotenv
 from tqdm import tqdm
@@ -17,7 +18,6 @@ from transformers import AutoTokenizer
 from huggingface_hub import login
 from typing import Optional
 from dataclasses import dataclass, field
-import re
 from datetime import datetime
 
 # Load variables from the .env file
