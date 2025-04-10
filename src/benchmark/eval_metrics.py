@@ -10,9 +10,11 @@ from collections import defaultdict
 def parse_arguments():
     parser = argparse.ArgumentParser(description="Script Arguments")
     
-    parser.add_argument("--junit_test_path", type=str, default="out/completions/Qwen2.5-Coder-7B-Instruct/cot/pass10/2025-04-03_11-10-59/junit_results_3.jsonl", help="Model's HF directory or local path")
+    parser.add_argument("--junit_test_path", type=str, default="out/completions/gemini-2.0-flash-thinking-exp-01-21/cot/pass1/2025-04-09_09-34-57/junit_results.jsonl", help="Model's HF directory or local path")
     parser.add_argument("--out_dir", type=str, default="./out", help="Outputs directory")
-    parser.add_argument("--k", type=int, default=10, help="value of K in Pass@k")
+    parser.add_argument("--k", type=int, default=1, help="value of K in Pass@k")
+    parser.add_argument("--max_score", type=int, default=14, help="max reachable score in the written part of the exam.")
+
 
     return parser.parse_args()
 
@@ -123,7 +125,7 @@ if __name__ == "__main__":
     num_correct_runtime = []
     num_correct_runtime_mandatory = []
     all_grades = []
-    max_score = 13
+    max_score = args.max_score
     for exam_session in grouped_list:
         session_attempts = exam_session['attempts']
         compilation_passed = [attempt for attempt in session_attempts if attempt['compilation_passed']]
