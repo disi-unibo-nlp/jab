@@ -119,6 +119,7 @@ if __name__ == "__main__":
     grouped_list = [{"id": id_exam, "attempts": v} for id_exam, v in grouped_data.items()]
 
     logger.info(f"Number of exam session: {len(grouped_list)}")
+    logger.info(f"First: {len(grouped_list)}")
 
     num_samples = [k] * len(grouped_list)
     num_correct_compilations = []
@@ -159,9 +160,9 @@ if __name__ == "__main__":
     pass_k_mandatory = format(round(np.mean(estimate_pass_k(num_samples, num_correct_runtime_mandatory, k, mode="at")) * 100, 1), ".1f")
 
     # pass^K       
-    compilation_power_k = format(round(np.mean(estimate_pass_k(num_samples, num_correct_compilations, 2, mode="power")) * 100, 1), ".1f")
-    pass_power_k = format(round(np.mean(estimate_pass_k(num_samples, num_correct_runtime, 2, mode="power")) * 100, 1), ".1f")
-    pass_power_k_mandatory = format(round(np.mean(estimate_pass_k(num_samples, num_correct_runtime_mandatory, 2, mode="power")) * 100, 1), ".1f")
+    # compilation_power_k = format(round(np.mean(estimate_pass_k(num_samples, num_correct_compilations, 2, mode="power")) * 100, 1), ".1f")
+    # pass_power_k = format(round(np.mean(estimate_pass_k(num_samples, num_correct_runtime, 2, mode="power")) * 100, 1), ".1f")
+    # pass_power_k_mandatory = format(round(np.mean(estimate_pass_k(num_samples, num_correct_runtime_mandatory, 2, mode="power")) * 100, 1), ".1f")
 
 
     logger.info("-"*25)
@@ -170,10 +171,10 @@ if __name__ == "__main__":
     logger.info(f"Mean pass@{k} - HARD: {pass_k}")
     logger.info("-"*25)
     
-    logger.info(f"Mean compilation^{2}: {compilation_power_k}")
-    logger.info(f"Mean pass^{2} - SOFT: {pass_power_k_mandatory}")
-    logger.info(f"Mean pass^{2} - HARD: {pass_power_k}")
-    logger.info("-"*25)
+    # logger.info(f"Mean compilation^{2}: {compilation_power_k}")
+    # logger.info(f"Mean pass^{2} - SOFT: {pass_power_k_mandatory}")
+    # logger.info(f"Mean pass^{2} - HARD: {pass_power_k}")
+    # logger.info("-"*25)
 
     print(all_grades[:10])
     
