@@ -89,37 +89,12 @@ def estimate_pass_k(
     estimator = pass_at_k if mode == "at" else pass_power_k
     return [estimator(int(n), int(c), k) for n, c in zip(num_samples_it, num_correct)]
 
+def calculate_scores(grouped_list, filter_by_year=None):
 
-if __name__ == "__main__":
-
-    logging.basicConfig(level=logging.DEBUG,
-        datefmt="%m/%d/%Y %H:%M:%S",
-        format="[%(asctime)s] {%(filename)s:%(lineno)d} %(levelname)s - %(message)s",
-        filename="eval_metrics.log",
-        filemode='w')
-
-    logger = logging.getLogger(__name__)
-    logger.addHandler(logging.StreamHandler())
-
-    args = parse_arguments()
-    model_name = args.junit_test_path.split("/")[2]
-    mode = args.junit_test_path.split("/")[3]
-    k = args.k
-
-    with open(args.junit_test_path) as f:
-        results = [json.loads(line) for line in f.readlines()]
-        results = [{"id": f"{el['year']}_{el['session']}", **el} for el in results]
-    
-    # Group by 'id'
-    grouped_data = defaultdict(list)
-    for item in results:
-        grouped_data[item["id"]].append(item)
-
-    # Convert to list of dictionaries
-    grouped_list = [{"id": id_exam, "attempts": v} for id_exam, v in grouped_data.items()]
-
-    logger.info(f"Number of exam session: {len(grouped_list)}")
-    logger.info(f"First: {len(grouped_list)}")
+    if filter_by_year:
+        grouped_list = [el for el in grouped_list if str(year) in el['id']]
+        logger.info(f"\n")
+        logger.info(f"Number of sessions: {len(grouped_list)}")
 
     num_samples = [k] * len(grouped_list)
     num_correct_compilations = []
@@ -156,8 +131,102 @@ if __name__ == "__main__":
 
     # pass@K       
     compilation_k = format(round(np.mean(estimate_pass_k(num_samples, num_correct_compilations, k, mode="at")) * 100, 1), ".1f")
-    pass_k = format(round(np.mean(estimate_pass_k(num_samples, num_correct_runtime, k, mode="at")) * 100, 1), ".1f")
     pass_k_mandatory = format(round(np.mean(estimate_pass_k(num_samples, num_correct_runtime_mandatory, k, mode="at")) * 100, 1), ".1f")
+    pass_k = format(round(np.mean(estimate_pass_k(num_samples, num_correct_runtime, k, mode="at")) * 100, 1), ".1f")
+
+    return compilation_k, pass_k_mandatory, pass_k
+
+
+if __name__ == "__main__":
+
+    logging.basicConfig(level=logging.DEBUG,
+        datefmt="%m/%d/%Y %H:%M:%S",
+        format="[%(asctime)s] {%(filename)s:%(lineno)d} %(levelname)s - %(message)s",
+        filename="eval_metrics.log",
+        filemode='w')
+
+    logger = logging.getLogger(__name__)
+    logger.addHandler(logging.StreamHandler())
+
+    args = parse_arguments()
+    model_name = args.junit_test_path.split("/")[2]
+    mode = args.junit_test_path.split("/")[3]
+    k = args.k
+
+    with open(args.junit_test_path) as f:
+        results = [json.loads(line) for line in f.readlines()]
+        results = [{"id": f"{el['year']}_{el['session']}", **el} for el in results]
+    
+    # Group by 'id'
+    grouped_data = defaultdict(list)
+    for item in results:
+        grouped_data[item["id"]].append(item)
+
+    # Convert to list of dictionaries
+    grouped_list = [{"id": id_exam, "attempts": v} for id_exam, v in grouped_data.items()]
+
+    logger.info(f"Number of exam session: {len(grouped_list)}")
+
+    compilation_k, pass_k_mandatory, pass_k = calculate_scores(grouped_list)
+
+    logger.info("-"*25)
+    logger.info(f"Mean compilation@{k}: {compilation_k}")
+    logger.info(f"Mean pass@{k} - SOFT: {pass_k_mandatory}")
+    logger.info(f"Mean pass@{k} - HARD: {pass_k}")
+    logger.info("-"*25)
+    logger.info("\n")
+
+    for year in range(2014, 2025):
+        compilation_k, pass_k_mandatory, pass_k = calculate_scores(grouped_list, filter_by_year=str(year))
+        
+        logger.info("-"*25)
+        logger.info(f"YEAR: {year}")
+        logger.info("-"*25)
+        logger.info(f"Mean compilation@{k}: {compilation_k}")
+        logger.info(f"Mean pass@{k} - SOFT: {pass_k_mandatory}")
+        logger.info(f"Mean pass@{k} - HARD: {pass_k}")
+        
+        
+
+    #logger.info(f"First: {len(grouped_list)}")
+
+    # num_samples = [k] * len(grouped_list)
+    # num_correct_compilations = []
+    # num_correct_runtime = []
+    # num_correct_runtime_mandatory = []
+    # all_grades = []
+    # max_score = args.max_score
+    # for exam_session in grouped_list:
+    #     session_attempts = exam_session['attempts']
+    #     compilation_passed = [attempt for attempt in session_attempts if attempt['compilation_passed']]
+    #     runtime_passed = [attempt for attempt in session_attempts if attempt['runtime_passed']]
+    #     runtime_passed_mandatory = [attempt for attempt in session_attempts if attempt['runtime_passed_mandatory']]
+    #     error_details = [attempt['test_details'] for attempt in session_attempts ]
+    #     num_correct_compilations.append(len(compilation_passed))
+    #     num_correct_runtime.append(len(runtime_passed))
+    #     num_correct_runtime_mandatory.append(len(runtime_passed_mandatory))
+
+    #     for err_details in error_details:
+    #         if err_details:
+    #             num_tests = err_details['tests_found']
+    #             test_success = err_details["tests_successful"]
+
+    #             if num_tests == test_success:
+    #                 final_grade = max_score
+    #             else:
+    #                 point_per_test = max_score / num_tests
+    #                 final_grade = round(test_success * point_per_test)
+
+    #             all_grades.append({"id": exam_session['id'], "grade": final_grade})
+            
+    #         else:
+    #             # compilation error
+    #             all_grades.append({"id": exam_session['id'], "grade": 0})
+
+    # # pass@K       
+    # compilation_k = format(round(np.mean(estimate_pass_k(num_samples, num_correct_compilations, k, mode="at")) * 100, 1), ".1f")
+    # pass_k = format(round(np.mean(estimate_pass_k(num_samples, num_correct_runtime, k, mode="at")) * 100, 1), ".1f")
+    # pass_k_mandatory = format(round(np.mean(estimate_pass_k(num_samples, num_correct_runtime_mandatory, k, mode="at")) * 100, 1), ".1f")
 
     # pass^K       
     # compilation_power_k = format(round(np.mean(estimate_pass_k(num_samples, num_correct_compilations, 2, mode="power")) * 100, 1), ".1f")
@@ -165,16 +234,12 @@ if __name__ == "__main__":
     # pass_power_k_mandatory = format(round(np.mean(estimate_pass_k(num_samples, num_correct_runtime_mandatory, 2, mode="power")) * 100, 1), ".1f")
 
 
-    logger.info("-"*25)
-    logger.info(f"Mean compilation@{k}: {compilation_k}")
-    logger.info(f"Mean pass@{k} - SOFT: {pass_k_mandatory}")
-    logger.info(f"Mean pass@{k} - HARD: {pass_k}")
-    logger.info("-"*25)
+    
     
     # logger.info(f"Mean compilation^{2}: {compilation_power_k}")
     # logger.info(f"Mean pass^{2} - SOFT: {pass_power_k_mandatory}")
     # logger.info(f"Mean pass^{2} - HARD: {pass_power_k}")
     # logger.info("-"*25)
 
-    print(all_grades[:10])
+    #print(all_grades[:10])
     
