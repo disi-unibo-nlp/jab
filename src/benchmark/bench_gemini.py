@@ -268,6 +268,12 @@ def main():
 
 You may use the provided utility Java files as needed. Your final answer must consist of one or more Java scripts, each enclosed separately between ```java and ``` in different code blocks."""
 
+    if False:
+        SYS_INSTRUCTION = """You are an expert Python developer. Your task is to solve the given university-level Python exam in a single attempt, ensuring that your solution correctly passes all unit tests defined in the provided `test.py` script.  
+
+    Your final answer must consist of one Python script, enclosed between ```python and ```."""
+
+
     out_path = args.out_dir + f"/completions/{MODEL_NAME}/{args.mode}/pass{pass_k}/{now_dir}"
     os.makedirs(out_path, exist_ok=True)
 
