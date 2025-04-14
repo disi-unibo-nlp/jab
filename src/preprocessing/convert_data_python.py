@@ -32,7 +32,7 @@ def parse_args():
     #                    help="Path to store data post processing.")
     parser.add_argument("--max_samples", type=int, default=-1,
                         help="Maximum number of items to process in the dataset. Default is -1 to process all data.")
-    parser.add_argument("--start_idx", type=int, default=7,
+    parser.add_argument("--start_idx", type=int, default=5,
                         help="Index of first prompt to process.")
     parser.add_argument("--top_p", type=float, default=0.95,
                         help="Top p sampling.")
@@ -199,6 +199,16 @@ def main():
         )
         python_code = extract_python_code(response.text)
         out_dict['python_code'] = python_code
+
+        # if "# Solution" in python_code:
+        #     utility = python_code.split('# Solution')[0].replace('# Utility Files','').strip()
+        #     out_dict['utility_classes'] = utility
+        
+        # if "# Test File" in python_code:
+        #     solution = python_code.split('# Test File')[0]
+        #     test = python_code.split('# Test File')[1]
+        #     out_dict['solution'] = utility
+        #     out_dict['test'] = test
 
         logger.info(f"ASSISTANT:\n\n{response.text}")
         logger.info("-----------------------------------------")
