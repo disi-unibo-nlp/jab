@@ -19,7 +19,7 @@ from huggingface_hub import login
 from typing import Optional
 from dataclasses import dataclass, field
 from datetime import datetime
-
+from src.benchmark.utils import check_mandatory_tests
 # Load variables from the .env file
 load_dotenv()
 
@@ -41,11 +41,10 @@ def parse_arguments():
     parser.add_argument("--n_out_sequences", type=int, default=1, help="Number of generated sequences per instance")
     parser.add_argument("--n_sampling", type=int, default=1, help="Number of solutions to generate for a given prompt")
     parser.add_argument("--temperature", type=float, default=0.0, help="Sampling temperature parameter")
-    parser.add_argument("--mode", type=str, choices=["cot", "tir"], default='cot', help="Inference mode: CoT or TIR")
+    parser.add_argument("--mode", type=str, choices=["cot", "agent"], default='cot', help="Inference mode: CoT or Agent")
     parser.add_argument("--n_gpus", type=int, default=1, help="Number of GPUs to use for inference.")
     parser.add_argument("--n_rounds", type=int, default=3, help="Number of rounds to use for inference.")
-    parser.add_argument("--max_tokens_cot", type=int, default=32768, help="Max number of tokens to generate in CoT prompting.")
-    parser.add_argument("--max_tokens_tir", type=int, default=1024, help="Max number of tokens to generate in TIR prompting.")
+    parser.add_argument("--max_tokens", type=int, default=None, help="Max number of tokens to generate in CoT prompting.")
     parser.add_argument("--year_sessions", type=str, default="", help="Specific years to consider, separated by comma. E.g: 2016,2018,2021")
     parser.add_argument("--junit_jar", default= "lib/junit-platform-console-standalone-1.13.0-M2.jar", help="Path to the JUnit standalone JAR file.")
 
@@ -58,10 +57,11 @@ def create_exams(dataset, exams_dir="exams"):
         year = item['year']
         year_dir = f"oop{year}"
         session_dir = item['session']
-        
-        solution_dir = f"{args.out_dir}/{exams_dir}/{MODEL_NAME}/{now_dir}/{year_dir}/{session_dir}/sol1"
+        solution_dir = f"{args.out_dir}/{exams_dir}/{MODEL_NAME}/{args.mode}/{now_dir}/{year_dir}/{session_dir}/sol1"
 
-        range_to_consider = range(args.n_out_sequences) if args.mode != "tir" else range(args.n_sampling)
+        # solution_dir = f"{args.out_dir}/{exams_dir}/{MODEL_NAME}/{now_dir}/{year_dir}/{session_dir}/sol1"
+
+        range_to_consider = range(args.n_out_sequences) if args.mode != "agent" else range(args.n_sampling)
         for k in range_to_consider:
             # create utils
             for util_class in item['utility_classes']:
@@ -120,7 +120,7 @@ def compile_exam(year, session, exams_dir="exams"):
     session_dir = session
     
     solution_dir = f"{args.out_dir}/{exams_dir}/{MODEL_NAME}/{now_dir}/{year_dir}/{session_dir}/sol1"
-    range_to_consider = range(args.n_out_sequences) if arg.mode != "tir" else range(args.n_sampling)
+    range_to_consider = range(args.n_out_sequences) if arg.mode != "agent" else range(args.n_sampling)
 
     for k in range_to_consider:
         # create utils
@@ -156,60 +156,112 @@ def compile_exam(year, session, exams_dir="exams"):
 
     return compile_errors
 
-# def compile_exams(dataset, exams_dir="exams"):
+
+# def exec_java_code(java_codes, year, session, k=None, exams_dir="exams"):
 
 #     compile_errors = []
-#     for item in tqdm(dataset, desc="Compiling exams"):
-#         year = item['year']
-#         year_dir = f"oop{year}"
-#         session = item['session']
-#         session_dir = item['session']
-        
-#         solution_dir = f"{args.out_dir}/{exams_dir}/{MODEL_NAME}/{now_dir}/{year_dir}/{session_dir}/sol1"
+#     runtime_errors = []
 
-#         for k in range(args.n_out_sequences):
-#             # create utils
-#             for util_class in item['utility_classes']:
-#                 util_class_filename = util_class['filename']
-#                 actual_sol_dir = solution_dir + (f"/k{k}" if args.n_out_sequences > 1 else "/greedy")
+#     year_dir = f"oop{year}"
+#     session_dir = session
+    
+#     solution_dir = f"{args.out_dir}/{exams_dir}/{MODEL_NAME}/{now_dir}/{year_dir}/{session_dir}/sol1"
+#     new_folder = f"k{k}" if not k is None else "pass1"
+#     actual_sol_dir = solution_dir + f"/{new_folder}"
 
-#                 bin_path = os.path.join(actual_sol_dir, "bin")
+#     bin_path = os.path.join(actual_sol_dir, "bin")
 
-#                 os.makedirs(bin_path, exist_ok=True)
+#     os.makedirs(bin_path, exist_ok=True)
 
-#                 for root, _, files in os.walk(bin_path):
-#                     for file in files:
-#                         os.remove(os.path.join(root, file))
+#     for root, _, files in os.walk(bin_path):
+#         for file in files:
+#             os.remove(os.path.join(root, file))
+    
+#     for k, code in enumerate(java_codes):
+#         code_filename = extract_filename(code)
+#         if code_filename and code_filename != "Test":
+#             logger.info(f"Filename {k}: {code_filename}")
+#             code = code.replace('.e1;','.sol1;').replace('.sol2;','.sol1;').replace('.e2;','.sol1;').replace('.sol1;', f'.sol1.{new_folder};').replace('.sol1.Evaluation',f'.sol1.{new_folder}.Evaluation')
+#             with open(os.path.join(actual_sol_dir, code_filename + ".java"), 'w') as f:
+#                 f.write(code)
+#         else:
+#             logger.info(f"This code is not a file to consider:\n\n{code}")
 
-#             java_files = sorted([os.path.join(actual_sol_dir, f) for f in os.listdir(actual_sol_dir) if f.endswith(".java") and not f.startswith("Test")])
-            
-#             if not java_files:
-#                 logger.warning(f"No Java files found in {actual_sol_dir}. Skipping.")
-#                 continue
+#     java_files = sorted([os.path.join(actual_sol_dir, f) for f in os.listdir(actual_sol_dir) if f.endswith(".java")])
+    
+#     if not java_files:
+#         logger.warning(f"No Java files found in {actual_sol_dir}. Skipping.")
+#         return
 
-#             logger.info(f"Compiling {len(java_files)} files in {actual_sol_dir}...")
-#             compile_command = ["javac", "-cp", JUNIT_JAR, "-d", bin_path] + java_files
+#     logger.info(f"Compiling {len(java_files)} files in {actual_sol_dir}...")
+#     compile_command = ["javac", "-cp", JUNIT_JAR, "-d", bin_path] + java_files
 
-#             try:
-#                 subprocess.run(compile_command, check=True, text=True, capture_output=True)
-#                 #safe_sessions.append({"year": year, "session": session})
-#             except subprocess.CalledProcessError as e:
-#                 err_output = e.stderr.strip().replace("\n", " ")
-#                 logger.error(f"Compilation failed for {actual_sol_dir}: {err_output}")
-#                 compile_errors.append({"year": year, "session": session, "err": err_output})
-#                 continue
+#     try:
+#         subprocess.run(compile_command, check=True, text=True, capture_output=True)
+#     except subprocess.CalledProcessError as e:
+#         err_output = e.stderr.strip().replace("\n", " ")
+#         logger.error(f"Compilation failed for {actual_sol_dir}: {err_output}")
+#         compile_errors.append({"year": year, "session": session, "error": err_output})
 
-#     return compile_errors
+#     if not compile_errors:
 
-def exec_java_code(java_codes, year, session, k=None, exams_dir="exams"):
+#         logger.info(f"Running tests for {actual_sol_dir}...")
+#         run_command = [
+#             "java", "-cp", f"{bin_path}:{JUNIT_JAR}",
+#             "org.junit.platform.console.ConsoleLauncher",
+#             "--class-path", bin_path,
+#             "--scan-class-path"
+#         ]
 
+#         try:
+#             result = subprocess.run(run_command, capture_output=True, text=True, timeout=10)
+#             logger.info(result.stdout)
+
+#             # If the command runs but tests fail, check stderr for failures
+#             if result.returncode != 0:
+#                 logger.info(f"{actual_sol_dir}: Tests failed with errors.")
+                
+#                 runtime_errors.append({
+#                     "year": year,
+#                     "session": session,
+#                     "error": "Failures " + result.stdout.split("Failures")[1].strip()
+#                 })
+
+#         except subprocess.SubprocessError as e:
+#             logger.info(f"{actual_sol_dir}: failed with error {e}\n")
+#             runtime_errors.append({
+#                 {"year": year, "session": session, "error": result.stderr if 'result' in locals() else str(e)}
+#             })
+#         except TimeoutError:
+#             logger.info(f"{actual_sol_dir}: timed out after 10 seconds\n")
+#             runtime_errors.append({
+#                 {"year": year, "session": session, "error": "Timeout error."}
+#             })
+    
+#     return compile_errors, runtime_errors
+
+def extract_failed_test_methods(stdout):
+    """
+    Extracts the names of the failed test methods from the JUnit output.
+    """
+    lines = stdout.split('\n')
+    failed_methods = []
+    for line in lines:
+        if 'MethodSource' in line and 'methodName' in line:
+            start = line.find("methodName = '") + len("methodName = '")
+            end = line.find("'", start)
+            if start > 0 and end > start:
+                failed_methods.append(line[start:end])
+    return failed_methods          
+
+def exec_java_code(java_files, year, session, now_dir, k=None, exams_dir="exams"):
     compile_errors = []
-    exec_errors = []
+    runtime_errors = []
 
     year_dir = f"oop{year}"
     session_dir = session
-    
-    solution_dir = f"{args.out_dir}/{exams_dir}/{MODEL_NAME}/{now_dir}/{year_dir}/{session_dir}/sol1"
+   
+    solution_dir = f"{args.out_dir}/{exams_dir}/{MODEL_NAME}/{args.mode}/{now_dir}/{year_dir}/{session_dir}/sol1"
     new_folder = f"k{k}" if not k is None else "pass1"
     actual_sol_dir = solution_dir + f"/{new_folder}"
 
@@ -220,12 +272,12 @@ def exec_java_code(java_codes, year, session, k=None, exams_dir="exams"):
     for root, _, files in os.walk(bin_path):
         for file in files:
             os.remove(os.path.join(root, file))
-    
-    for k, code in enumerate(java_codes):
+
+    for k_code, code in enumerate(java_files):
         code_filename = extract_filename(code)
         if code_filename and code_filename != "Test":
-            logger.info(f"Filename {k}: {code_filename}")
-            code = code.replace('.e1;','.sol1;').replace('.sol2;','.sol1;').replace('.e2;','.sol1;').replace('.sol1;', f'.sol1.{new_folder};').replace('.sol1.Evaluation',f'.sol1.{new_folder}.Evaluation')
+            logger.info(f"Filename {k_code}: {code_filename}")
+            code = code.replace('.e1;','.sol1;').replace('.sol2;','.sol1;').replace('.e2;','.sol1;').replace('.sol1.',f'.sol1.{new_folder}.').replace('.sol1;', f'.sol1.{new_folder};')
             with open(os.path.join(actual_sol_dir, code_filename + ".java"), 'w') as f:
                 f.write(code)
         else:
@@ -237,15 +289,17 @@ def exec_java_code(java_codes, year, session, k=None, exams_dir="exams"):
         logger.warning(f"No Java files found in {actual_sol_dir}. Skipping.")
         return
 
+    JUNIT_JAR = args.junit_jar
     logger.info(f"Compiling {len(java_files)} files in {actual_sol_dir}...")
     compile_command = ["javac", "-cp", JUNIT_JAR, "-d", bin_path] + java_files
+    test_details = {}
 
     try:
         subprocess.run(compile_command, check=True, text=True, capture_output=True)
     except subprocess.CalledProcessError as e:
         err_output = e.stderr.strip().replace("\n", " ")
         logger.error(f"Compilation failed for {actual_sol_dir}: {err_output}")
-        compile_errors.append({"year": year, "session": session, "error": err_output})
+        compile_errors.append({"error": err_output})
 
     if not compile_errors:
 
@@ -261,29 +315,70 @@ def exec_java_code(java_codes, year, session, k=None, exams_dir="exams"):
             result = subprocess.run(run_command, capture_output=True, text=True, timeout=10)
             logger.info(result.stdout)
 
+            test_details = parse_test_output(result.stdout)
             # If the command runs but tests fail, check stderr for failures
             if result.returncode != 0:
                 logger.info(f"{actual_sol_dir}: Tests failed with errors.")
-                
-                exec_errors.append({
-                    "year": year,
-                    "session": session,
-                    "error": "Failures " + result.stdout.split("Failures")[1].strip()
+                failed_methods = extract_failed_test_methods(result.stdout)
+                runtime_errors.append({
+                    "error": "Failures " + result.stdout.split("Failures")[1].strip(),
+                    "fails": failed_methods
                 })
 
         except subprocess.SubprocessError as e:
             logger.info(f"{actual_sol_dir}: failed with error {e}\n")
-            exec_errors.append({
-                {"year": year, "session": session, "error": result.stderr if 'result' in locals() else str(e)}
+            runtime_errors.append({
+                "error": result.stderr if 'result' in locals() else str(e)
             })
         except TimeoutError:
             logger.info(f"{actual_sol_dir}: timed out after 10 seconds\n")
-            exec_errors.append({
-                {"year": year, "session": session, "error": "Timeout error."}
+            runtime_errors.append({
+                "error": "Timeout error."
             })
+
+    return compile_errors, runtime_errors, test_details
+
+def parse_test_output(output):
+    details = {
+        "containers_found": 0,
+        "containers_skipped": 0,
+        "containers_started": 0,
+        "containers_aborted": 0,
+        "containers_successful": 0,
+        "containers_failed": 0,
+        "tests_found": 0,
+        "tests_skipped": 0,
+        "tests_started": 0,
+        "tests_aborted": 0,
+        "tests_successful": 0,
+        "tests_failed": 0
+    }
     
-    return compile_errors, exec_errors
-          
+    for line in output.splitlines():
+        if "containers found" in line:
+            details["containers_found"] = int(line.split()[1])
+        elif "containers skipped" in line:
+            details["containers_skipped"] = int(line.split()[1])
+        elif "containers started" in line:
+            details["containers_started"] = int(line.split()[1])
+        elif "containers aborted" in line:
+            details["containers_aborted"] = int(line.split()[1])
+        elif "containers successful" in line:
+            details["containers_successful"] = int(line.split()[1])
+        elif "tests found" in line:
+            details["tests_found"] = int(line.split()[1])
+        elif "tests skipped" in line:
+            details["tests_skipped"] = int(line.split()[1])
+        elif "tests started" in line:
+            details["tests_started"] = int(line.split()[1])
+        elif "tests aborted" in line:
+            details["tests_aborted"] = int(line.split()[1])
+        elif "tests successful" in line:
+            details["tests_successful"] = int(line.split()[1])
+        elif "tests failed" in line:
+            details["tests_failed"] = int(line.split()[1])
+        
+    return details
 
 def extract_and_remove_package_line(java_code):
     match = re.search(r'^package\s+[^\n]+;', java_code, flags=re.MULTILINE)
@@ -340,8 +435,8 @@ if __name__ == "__main__":
         n=args.n_out_sequences, 
         temperature=args.temperature, 
         top_p=args.top_p, 
-        max_tokens=args.max_tokens_cot if args.mode == "cot" else args.max_tokens_tir, 
-        seed=None if (args.n_out_sequences > 1 and args.mode == "cot") or (args.n_sampling > 1 and args.mode == "tir") else 0
+        max_tokens=args.max_tokens, 
+        seed=None if (args.n_out_sequences > 1 and args.mode == "cot") or (args.n_sampling > 1 and args.mode == "agent") else 0
     )
 
     
@@ -359,6 +454,9 @@ if __name__ == "__main__":
 
     dataset = load_dataset(args.dataset_path, split="test")
 
+    with open('data/optional_conditions.json') as f:
+        optional_conditions = json.load(f)
+
     if args.year_sessions: 
         years_to_consider = args.year_sessions.split(",")
         years_to_consider = [int(el) for el in years_to_consider]
@@ -371,7 +469,7 @@ if __name__ == "__main__":
         dataset = dataset.select(range(args.max_samples))
 
     
-    if args.mode == "tir":
+    if args.mode == "agent":
 
         logger.info("Creating exams...")
         create_exams(dataset)
@@ -404,13 +502,13 @@ You may use the provided utility Java files as needed. Your final answer must co
 
         test_content = item['test']['content']
 
-        # correct specific human errors of mispelling on specific test data
-        if item['year'] == "2020" and item['session'] == "a05":
-            test_content = test_content.replace("createRechargableBattery", "createRechargeableBattery")
-            test_content = test_content.replace("createSecureAndRechargableBattery", "createSecureAndRechargeableBattery")
+        # # correct specific human errors of mispelling on specific test data
+        # if item['year'] == "2020" and item['session'] == "a05":
+        #     test_content = test_content.replace("createRechargableBattery", "createRechargeableBattery")
+        #     test_content = test_content.replace("createSecureAndRechargableBattery", "createSecureAndRechargeableBattery")
 
-        # fix consistency in package path
-        test_content = test_content.replace('.e1;','.sol1;').replace('.sol2;','.sol1;').replace('.e2;','.sol1;')
+        # # fix consistency in package path
+        # test_content = test_content.replace('.e1;','.sol1;').replace('.sol2;','.sol1;').replace('.e2;','.sol1;')
         
         package_line, test_content = extract_and_remove_package_line(java_code=test_content)
         test_file = f"// {item['test']['filename']}\n\n{test_content}"
@@ -459,7 +557,7 @@ You may use the provided utility Java files as needed. Your final answer must co
 
     logger.info(prompts[0])
     
-    if args.n_sampling > 1 and args.mode == "tir":
+    if args.n_sampling > 1 and args.mode == "agent":
         import copy
         batches = [[copy.deepcopy(el) for _ in range(args.n_sampling)] for el in prompts]
     else:
@@ -504,7 +602,7 @@ You may use the provided utility Java files as needed. Your final answer must co
                         json.dump({"id": ids[id_out], "code": java_codes, "completion": completion}, f, ensure_ascii=False)
                         f.write('\n')
 
-        elif args.mode == "tir":
+        elif args.mode == "agent":
             
             
 
@@ -546,18 +644,43 @@ You may use the provided utility Java files as needed. Your final answer must co
                     exam_passed = False
 
                     if java_codes:
-                        compile_errors, exec_errors = exec_java_code(java_codes=java_codes, year=years[id_out], session=sessions[id_out], k=id_out if num_attempts > 1 else None)
+                        compile_errors, runtime_errors, test_details = exec_java_code(java_codes, years[id_out], sessions[id_out], now_dir, k=id_out if num_attempts > 1 else None)
+
+                        result_json = {
+                            "year": years[id_out],
+                            "session": sessions[id_out],
+                            "compile_errors": compile_errors,
+                            "runtime_errors": runtime_errors,
+                            "compilation_passed": False if compile_errors else True,
+                            "runtime_passed": False if runtime_errors or compile_errors else True,
+                            "test_details": test_details,
+                            "chat_history": messages
+                        }
+
+                        result_json = check_mandatory_tests(result_json, optional_conditions)
+
                     else:
                         # No Java code found - record this as an error
                         compile_errors = [{"year": years[id_out], "session": sessions[id_out], "error": "No valid Java code found in completion"}]  
+                        result_json = {
+                            "year": years[id_out],
+                            "session": sessions[id_out],
+                            "compile_errors": compile_errors,
+                            "runtime_errors": [],
+                            "compilation_passed": False,
+                            "runtime_passed": False,
+                            "test_details": "",
+                            "chat_history": messages,
+                            "runtime_passed_mandatory": False
+                        }
 
                     if compile_errors:
                         messages[id_out].append({"role": "assistant", "content": completion.strip()})
                         messages[id_out].append({"role": "user", "content": f"Correct the compilation error. Rewrite your code from scratch while ensuring correctness.\n\n```output\n{compile_errors}\n```\n"})
                     
-                    elif exec_errors:
+                    elif runtime_errors:
                         messages[id_out].append({"role": "assistant", "content": completion.strip()})
-                        messages[id_out].append({"role": "user", "content": f"Correct the runtime error. Modify only the necessary sections while preserving the rest of your code. Ensure that your response includes your full corrected code.\n\n```output\n{exec_errors}\n```"})
+                        messages[id_out].append({"role": "user", "content": f"Correct the runtime error. Modify only the necessary sections while preserving the rest of your code. Ensure that your response includes your full corrected code.\n\n```output\n{runtime_errors}\n```"})
                     
                     else:
                         exam_passed = True
@@ -567,7 +690,7 @@ You may use the provided utility Java files as needed. Your final answer must co
                         messages[id_out].append({"role": "user", "content": f"Congrats, all tests passed!"})
 
                         with open(f"{out_path}/completions_{args.mode}.jsonl", 'a') as f:
-                            json.dump({"id": ids[id_out], "code": java_codes, "compile_errors": compile_errors, "exec_errors": exec_errors, "messages": messages[id_out], "passed": True}, f, ensure_ascii=False)
+                            json.dump(result_json, f, ensure_ascii=False)
                             f.write('\n')
 
                     if not exam_passed and n_round < args.n_rounds and messages[id_out]:
@@ -590,7 +713,7 @@ You may use the provided utility Java files as needed. Your final answer must co
                         #messages[id_out].append({"role": "assistant", "content": completion})
                                  
                         with open(f"{out_path}/completions_{args.mode}.jsonl", 'a') as f:
-                            json.dump({"id": ids[id_out], "code": java_codes, "compile_errors": compile_errors, "exec_errors": exec_errors, "messages": messages[id_out], "passed": False}, f, ensure_ascii=False)
+                            json.dump(result_json, f, ensure_ascii=False)
                             f.write('\n')
         
         end_time_batch = time.time()  # Record end time
