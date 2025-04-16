@@ -539,7 +539,12 @@ You may use the provided utilities as needed. Your final answer must consist of 
                     }
                     result_json = check_mandatory_tests(result_json, optional_conditions)
                 
+                    
                     with open(f"{out_path}/completions_{args.mode}_python.jsonl", 'a') as f:
+                        json.dump({"id": id_exam, "code": python_code, "completion": completion}, f, ensure_ascii=False)
+                        f.write('\n')
+                    
+                    with open(f"{out_path}/unittest_{args.mode}_python.jsonl", 'a') as f:
                         json.dump(result_json, f, ensure_ascii=False)
                         f.write('\n')
 
@@ -664,7 +669,7 @@ You may use the provided utilities as needed. Your final answer must consist of 
 
                             prompt = ""
 
-                            with open(f"{out_path}/completions_{args.mode}.jsonl", 'a') as f:
+                            with open(f"{out_path}/completions_{args.mode}_python.jsonl", 'a') as f:
                                 json.dump(result_json, f, ensure_ascii=False)
                                 f.write('\n')
 
@@ -675,7 +680,7 @@ You may use the provided utilities as needed. Your final answer must consist of 
                             
                             logger.info("Exam NOT passed.")
                             
-                            with open(f"{out_path}/completions_{args.mode}.jsonl", 'a') as f:
+                            with open(f"{out_path}/completions_{args.mode}_python.jsonl", 'a') as f:
                                 json.dump(result_json, f, ensure_ascii=False)
                                 f.write('\n')
                         
