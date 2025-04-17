@@ -5,13 +5,14 @@ import json
 import itertools
 import argparse
 import logging
+import os
 from collections import defaultdict
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description="Script Arguments")
     
-    parser.add_argument("--junit_test_path", type=str, default="out/completions/gemini-2.0-flash-thinking-exp-01-21/cot/pass1/2025-04-09_09-34-57/junit_results.jsonl", help="Model's HF directory or local path")
-    parser.add_argument("--out_dir", type=str, default="./out", help="Outputs directory")
+    parser.add_argument("--junit_test_path", type=str, default="out/completions/QwQ-32B/cot/pass1/2025-04-17_18-34-27/junit_results.jsonl", help="Model's HF directory or local path")
+    parser.add_argument("--out_dir", type=str, default="./eval_metrics", help="Outputs directory")
     parser.add_argument("--k", type=int, default=1, help="value of K in Pass@k")
     parser.add_argument("--max_score", type=int, default=14, help="max reachable score in the written part of the exam.")
 
@@ -139,16 +140,21 @@ def calculate_scores(grouped_list, filter_by_year=None):
 
 if __name__ == "__main__":
 
+    args = parse_arguments()
+    model_name = args.junit_test_path.split("/")[2]
+    out_dir = f"{args.out_dir}/{model_name}/pass{args.k}"
+    os.makedirs(out_dir, exist_ok=True)
+
     logging.basicConfig(level=logging.DEBUG,
         datefmt="%m/%d/%Y %H:%M:%S",
         format="[%(asctime)s] {%(filename)s:%(lineno)d} %(levelname)s - %(message)s",
-        filename="eval_metrics.log",
+        filename=f"{out_dir}/eval_metrics.log",
         filemode='w')
 
     logger = logging.getLogger(__name__)
     logger.addHandler(logging.StreamHandler())
 
-    args = parse_arguments()
+    
     model_name = args.junit_test_path.split("/")[2]
     mode = args.junit_test_path.split("/")[3]
     k = args.k
