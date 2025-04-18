@@ -40,7 +40,7 @@ def parse_arguments():
 
     return parser.parse_args()
 
-def make_completion(system_instruction, prompt, model_name):
+def make_completion_deepseek(system_instruction, prompt, model_name):
     
     try:
         # Create a chat completion using the question and context
@@ -62,6 +62,51 @@ def make_completion(system_instruction, prompt, model_name):
     except Exception as e:
         print(e)
         return ""
+
+def make_completion_openai(prompt, model_name="gpt-4.1-2025-04-14"):
+    response = client.responses.create(
+        model=model_name,
+        input=[
+            {
+                "role": "user", 
+                "content": prompt
+            }
+        ]
+    )
+
+    completion = response.output_text
+    usage = response.usage
+    usage_info = {
+        "prompt_tokens": usage.input_tokens,
+        "completion_tokens": usage.output_tokens,
+        "total_tokens": usage.total_tokens
+    }
+
+    return completion, usage_info
+
+def make_completion_openai_reasoner(prompt, model_name="o4-mini-2025-04-16", reasoning_effort="high"):
+
+    # return response
+    response = client.responses.create(
+        model=model_name,
+        reasoning={"effort": reasoning_effort},
+        input=[
+            {
+                "role": "user", 
+                "content": prompt
+            }
+        ]
+    )
+
+    completion = response.output_text
+    usage = response.usage
+    usage_info = {
+        "prompt_tokens": usage.input_tokens,
+        "completion_tokens": usage.output_tokens,
+        "total_tokens": usage.total_tokens
+    }
+
+    return completion, usage_info
 
 def make_completion_qwq(prompt):
 
@@ -198,14 +243,13 @@ You may use the provided utilities as needed. Your final answer must consist of 
 
                 logger.info(f"EXAM: {item['year']}_{item['session']}")
 
-                if "qwq" not in args.model_path.lower():
-                    response = make_completion(SYS_INSTRUCTION, prompt, MODEL_NAME)
+                if "o4" in args.model_path.lower():
+                    completion, usage = make_completion_openai_reasoner(prompt, MODEL_NAME)
+                elif "deepseek" in args.model_path.lower():
+                    response = make_completion_deepseek(SYS_INSTRUCTION, prompt, MODEL_NAME)
                     completion = response.choices[0].message.content.strip()
-                else:
+                elif "qwq" in args.model_path.lower():
                     prompt = SYS_INSTRUCTION.replace("You are an expert Java developer.", "").strip() + "\n\n" + prompt
-                    if i == 0:
-                        logger.info("Prompt:\n", prompt)
-
                     completion, reasoning_content, usage = make_completion_qwq(prompt)
                     
                 
@@ -225,7 +269,7 @@ You may use the provided utilities as needed. Your final answer must consist of 
                         if args.model_path  == "deepseek-reasoner" or "qwq" in args.model_path.lower():
                             res_dict["reasoning"] = reasoning_content
 
-                        if "qwq" in args.model_path.lower():
+                        if "qwq" in args.model_path.lower() or "o4" in args.model_path.lower():
                             res_dict["usage"] = usage
 
                         json.dump(res_dict, f, ensure_ascii=False)
@@ -438,5 +482,4 @@ if __name__ == "__main__":
     logger.info(args)
 
     main()
-    
     
