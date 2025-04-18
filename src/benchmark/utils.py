@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np 
 import subprocess
 import re
+from tqdm import tqdm
 
 
 
@@ -53,7 +54,7 @@ def check_mandatory_tests(item, conditions):
             return item 
 
         fails = item["runtime_errors"][0]['fails']
-        logger.info(f"Fail methods: {fails}")
+        print(f"Fail methods: {fails}")
         if not fails:
             item["runtime_passed_mandatory"] = True
             return item
@@ -122,3 +123,287 @@ def check_mandatory_tests(item, conditions):
         item["runtime_passed_mandatory"] = False
     
     return item
+
+def create_exams(args, dataset, now_dir, exams_dir="exams"):
+
+    for item in tqdm(dataset, desc="Creating exams"):
+        year = item['year']
+        year_dir = f"oop{year}"
+        session_dir = item['session']
+        
+        solution_dir = f"{args.out_dir}/{exams_dir}/{args.model_path}/{args.mode}/{now_dir}/{year_dir}/{session_dir}/sol1"
+
+        range_to_consider = range(args.n_samplings)
+        for k in range_to_consider:
+            # create utils
+            for util_class in item['utility_classes']:
+                util_class_filename = util_class['filename']
+                new_folder = f"k{k}" if len(range_to_consider) > 1 else "pass1"
+                actual_sol_dir = solution_dir + f"/{new_folder}"
+                os.makedirs(actual_sol_dir, exist_ok=True)
+                with open(f"{actual_sol_dir}/{util_class_filename}", "w") as f:
+                    content = util_class["content"].strip()
+
+                    # Replace old suffixes with the new folder structure
+                    content = (content
+                        .replace(".e1;", ".sol1;")
+                        .replace(".sol2;", ".sol1;")
+                        .replace(".e2;", ".sol1;")
+                        .replace('.sol1.', f'.sol1.{new_folder}.')
+                        .replace('.sol1;', f'.sol1.{new_folder};')
+                    )
+
+                    # Write the modified content back to the file
+                    f.write(content)
+            # create test
+            test_filename = item['test']['filename']
+
+            with open(f'{actual_sol_dir}/{test_filename}', 'w') as f:
+                test_content = item['test']['content'].strip()
+
+                # Custom replacements in your script
+                test_content = (
+                    test_content.replace('.e1;', '.sol1;')
+                                .replace('.sol2;', '.sol1;')
+                                .replace('.e2;', '.sol1;')
+                                .replace('.sol1.', f'.sol1.{new_folder}.')
+                                .replace('.sol1;', f'.sol1.{new_folder};')
+                )
+
+                f.write(test_content)
+
+def exec_python_tests_and_parse(args, dataset, python_code, year, session, now_dir, k=None, exams_dir="exams_python"):
+    """Runs the unittest script and parses the output.
+
+    Args:
+        script_path: The path to the unittest script (e.g., 'exams_python.oop2023.a01a.test').
+
+    Returns:
+        A dictionary where keys are test names and values are their status ('ok', 'fail', etc.).
+    """
+
+    year_dir = f"oop{year}"
+    session_dir = session
+    item_exam = dataset.filter(lambda x: str(x['year']) == str(year) and x['session'] == session)
+   
+    python_code = item_exam['utility_classes'][0]['content'] + "\n\n" + python_code + "\n\n" + item_exam['test'][0]['content']
+
+    solution_dir = f"{args.out_dir}/{exams_dir}/{args.model_path.replace('.', '')}/{args.mode}/{now_dir}/{year_dir}/{session_dir}/sol1"
+    new_folder = f"k{k}" if not k is None else "pass1"
+    actual_sol_dir = solution_dir + f"/{new_folder}"
+
+    os.makedirs(actual_sol_dir, exist_ok=True)
+
+
+    
+    code_filename = "test"
+    if code_filename and code_filename != "Test":
+        print(f"Filename: {code_filename}")
+        #code = code.replace('.e1;','.sol1;').replace('.sol2;','.sol1;').replace('.e2;','.sol1;').replace('.sol1.',f'.sol1.{new_folder}.').replace('.sol1;', f'.sol1.{new_folder};')
+        with open(os.path.join(actual_sol_dir, code_filename + ".py"), 'w') as f:
+            f.write(python_code)
+
+    script_path = os.path.join(actual_sol_dir, code_filename).replace("./","").replace("/", ".")
+    command = ['python3', '-m', 'unittest', '-v', script_path]
+    process = subprocess.run(command, capture_output=True, text=True, check=False)
+
+    stdout_output = process.stdout
+    stderr_output = process.stderr
+    results = {}
+
+    # Regular expression to find test names and their status
+    test_result_pattern = re.compile(r"test_(\w+)\s+\(([\w.]+)\)\s+\.\.\.\s+(\w+)")
+
+    output_to_parse = stderr_output if stderr_output else stdout_output
+    fail_tests = []
+    num_tests = 0
+    for line in output_to_parse.splitlines():
+        match = test_result_pattern.search(line)
+        if match:
+            test_name = match.group(1)
+            class_name = match.group(2)
+            status = match.group(3)
+            results[f"{class_name}.test_{test_name}"] = status
+            
+            if str(status) == "FAIL":
+                fail_tests.append(f"test_{test_name}")
+            
+            num_tests += 1
+
+    # You can also access the summary information
+    #summary_pattern = re.compile(r"Ran (\d+) tests in (\d+\.\d+)s")
+    #summary_match = summary_pattern.search(output_to_parse)
+    #num_tests = 0
+    #if summary_match:
+    #    num_tests = int(summary_match.group(1))
+    #    duration = float(summary_match.group(2))
+    #    results['summary'] = {'total_tests': num_tests, 'duration': duration}
+
+    overall_status_found = False
+    if "OK" in output_to_parse:
+        results['overall_status'] = 'OK'
+        overall_status_found = True
+    elif "FAIL" in output_to_parse:
+        results['overall_status'] = 'FAIL'
+        overall_status_found = True
+    elif "ERROR" in output_to_parse:
+        results['overall_status'] = 'ERROR'
+        overall_status_found = True
+
+    if not overall_status_found:
+        results['overall_status'] = 'UNKNOWN'
+
+    if stdout_output and results['overall_status'] == 'OK':
+        results['stdout_output'] = stdout_output
+    #elif stderr_output and not fail_tests:
+    #    results['output_details'] = stderr_output
+    results['details'] =  {
+        "tests_found": num_tests,
+        "tests_started": num_tests,
+        "tests_successful": num_tests - len(fail_tests),
+        "tests_failed": len(fail_tests)
+    }
+
+    results['runtime_errors'] = [{"fails": fail_tests, "error": stderr_output}] if results['overall_status'] != 'OK' else []
+    
+    return results
+
+def parse_test_output(output):
+    details = {
+        "containers_found": 0,
+        "containers_skipped": 0,
+        "containers_started": 0,
+        "containers_aborted": 0,
+        "containers_successful": 0,
+        "containers_failed": 0,
+        "tests_found": 0,
+        "tests_skipped": 0,
+        "tests_started": 0,
+        "tests_aborted": 0,
+        "tests_successful": 0,
+        "tests_failed": 0
+    }
+    
+    for line in output.splitlines():
+        if "containers found" in line:
+            details["containers_found"] = int(line.split()[1])
+        elif "containers skipped" in line:
+            details["containers_skipped"] = int(line.split()[1])
+        elif "containers started" in line:
+            details["containers_started"] = int(line.split()[1])
+        elif "containers aborted" in line:
+            details["containers_aborted"] = int(line.split()[1])
+        elif "containers successful" in line:
+            details["containers_successful"] = int(line.split()[1])
+        elif "tests found" in line:
+            details["tests_found"] = int(line.split()[1])
+        elif "tests skipped" in line:
+            details["tests_skipped"] = int(line.split()[1])
+        elif "tests started" in line:
+            details["tests_started"] = int(line.split()[1])
+        elif "tests aborted" in line:
+            details["tests_aborted"] = int(line.split()[1])
+        elif "tests successful" in line:
+            details["tests_successful"] = int(line.split()[1])
+        elif "tests failed" in line:
+            details["tests_failed"] = int(line.split()[1])
+        
+    return details
+
+def extract_failed_test_methods(stdout):
+    """
+    Extracts the names of the failed test methods from the JUnit output.
+    """
+    lines = stdout.split('\n')
+    failed_methods = []
+    for line in lines:
+        if 'MethodSource' in line and 'methodName' in line:
+            start = line.find("methodName = '") + len("methodName = '")
+            end = line.find("'", start)
+            if start > 0 and end > start:
+                failed_methods.append(line[start:end])
+    return failed_methods
+
+def exec_java_code(args, logger, java_files, year, session, now_dir, k=None, exams_dir="exams"):
+    compile_errors = []
+    runtime_errors = []
+
+    year_dir = f"oop{year}"
+    session_dir = session
+    
+    solution_dir = f"{args.out_dir}/{exams_dir}/{args.model_path}/{args.mode}/{now_dir}/{year_dir}/{session_dir}/sol1"
+    new_folder = f"k{k}" if not k is None else "pass1"
+    actual_sol_dir = solution_dir + f"/{new_folder}"
+
+    bin_path = os.path.join(actual_sol_dir, "bin")
+
+    os.makedirs(bin_path, exist_ok=True)
+
+    for root, _, files in os.walk(bin_path):
+        for file in files:
+            os.remove(os.path.join(root, file))
+
+    for k_code, code in enumerate(java_files):
+        code_filename = extract_filename(code)
+        if code_filename and code_filename != "Test":
+            logger.info(f"Filename {k_code}: {code_filename}")
+            code = code.replace('.e1;','.sol1;').replace('.sol2;','.sol1;').replace('.e2;','.sol1;').replace('.sol1.',f'.sol1.{new_folder}.').replace('.sol1;', f'.sol1.{new_folder};')
+            with open(os.path.join(actual_sol_dir, code_filename + ".java"), 'w') as f:
+                f.write(code)
+        else:
+            logger.info(f"This code is not a file to consider:\n\n{code}")
+
+    java_files = sorted([os.path.join(actual_sol_dir, f) for f in os.listdir(actual_sol_dir) if f.endswith(".java")])
+    
+    if not java_files:
+        logger.warning(f"No Java files found in {actual_sol_dir}. Skipping.")
+        return
+
+    JUNIT_JAR = args.junit_jar
+    logger.info(f"Compiling {len(java_files)} files in {actual_sol_dir}...")
+    compile_command = ["javac", "-cp", JUNIT_JAR, "-d", bin_path] + java_files
+    test_details = {}
+
+    try:
+        subprocess.run(compile_command, check=True, text=True, capture_output=True)
+    except subprocess.CalledProcessError as e:
+        err_output = e.stderr.strip().replace("\n", " ")
+        logger.error(f"Compilation failed for {actual_sol_dir}: {err_output}")
+        compile_errors.append({"error": err_output})
+
+    if not compile_errors:
+
+        logger.info(f"Running tests for {actual_sol_dir}...")
+        run_command = [
+            "java", "-cp", f"{bin_path}:{JUNIT_JAR}",
+            "org.junit.platform.console.ConsoleLauncher",
+            "--class-path", bin_path,
+            "--scan-class-path"
+        ]
+
+        try:
+            result = subprocess.run(run_command, capture_output=True, text=True, timeout=10)
+            logger.info(result.stdout)
+
+            test_details = parse_test_output(result.stdout)
+            # If the command runs but tests fail, check stderr for failures
+            if result.returncode != 0:
+                logger.info(f"{actual_sol_dir}: Tests failed with errors.")
+                failed_methods = extract_failed_test_methods(result.stdout)
+                runtime_errors.append({
+                    "error": "Failures " + result.stdout.split("Failures")[1].strip(),
+                    "fails": failed_methods
+                })
+
+        except subprocess.SubprocessError as e:
+            logger.info(f"{actual_sol_dir}: failed with error {e}\n")
+            runtime_errors.append({
+                "error": result.stderr if 'result' in locals() else str(e)
+            })
+        except TimeoutError:
+            logger.info(f"{actual_sol_dir}: timed out after 10 seconds\n")
+            runtime_errors.append({
+                "error": "Timeout error."
+            })
+
+    return compile_errors, runtime_errors, test_details
