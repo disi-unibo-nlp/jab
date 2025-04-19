@@ -495,16 +495,35 @@ You may use the provided utilities as needed. Your final answer must consist of 
                 logger.info(f"EXAM: {item['year']}_{item['session']}")
                 response = ""
 
-                response = client.models.generate_content(
-                    model=MODEL_NAME, 
-                    contents=prompt, 
-                    config=types.GenerateContentConfig(
-                    system_instruction=SYS_INSTRUCTION,
-                    temperature=args.temperature,
-                    #max_output_tokens=4096,
-                    top_p=args.top_p,
+                if "gemini-2.5-flash" in MODEL_NAME:
+                    response = client.models.generate_content(
+                        model=MODEL_NAME,
+                        contents=prompt,
+                        config=types.GenerateContentConfig(
+                            system_instruction=SYS_INSTRUCTION,
+                            thinking_config=types.ThinkingConfig(
+                                thinking_budget=24576
+                                )
+                            ),
+                        )
+                    prompt_token = response.usage_metadata.prompt_token_count
+                    answer_tokens = response.usage_metadata.candidates_token_count
+                    think_tokens = response.usage_metadata.thoughts_token_count
+                    usage = {
+                        "prompt_tokens": prompt_token,
+                        "answer_tokens": answer_tokens,
+                        "thinking_tokens": think_tokens
+                    }
+                else:
+                    response = client.models.generate_content(
+                        model=MODEL_NAME, 
+                        contents=prompt, 
+                        config=types.GenerateContentConfig(
+                        system_instruction=SYS_INSTRUCTION,
+                        temperature=args.temperature,
+                        top_p=args.top_p,
+                        )
                     )
-                )
 
                 completion = response.text
 
@@ -516,7 +535,10 @@ You may use the provided utilities as needed. Your final answer must consist of 
                     java_codes = [{'filename': extract_filename(java_code), "content": java_code} for java_code in java_codes]
 
                     with open(f"{out_path}/completions_{args.mode}.jsonl", 'a') as f:
-                        json.dump({"id": id_exam, "code": java_codes, "completion": completion}, f, ensure_ascii=False)
+                        res_dict = {"id": id_exam, "code": java_codes, "completion": completion}
+                        if "gemini-2.5-flash" in MODEL_NAME:
+                            res_dict["usage"] = usage
+                        json.dump(res_dict, f, ensure_ascii=False)
                         f.write('\n')
 
                     time.sleep(5)
@@ -541,7 +563,10 @@ You may use the provided utilities as needed. Your final answer must consist of 
                 
                     
                     with open(f"{out_path}/completions_{args.mode}_python.jsonl", 'a') as f:
-                        json.dump({"id": id_exam, "code": python_code, "completion": completion}, f, ensure_ascii=False)
+                        res_dict = {"id": id_exam, "code": python_code, "completion": completion}
+                        if "gemini-2.5-flash" in MODEL_NAME:
+                            res_dict["usage"] = usage
+                        json.dump(res_dict, f, ensure_ascii=False)
                         f.write('\n')
                     
                     with open(f"{out_path}/unittest_{args.mode}_python.jsonl", 'a') as f:
@@ -552,14 +577,24 @@ You may use the provided utilities as needed. Your final answer must consist of 
             
             elif args.mode == "agent":
 
-                chat = client.chats.create(
-                    model=MODEL_NAME, 
-                    config=types.GenerateContentConfig(
-                    system_instruction=SYS_INSTRUCTION,
-                    temperature=args.temperature,
-                    #max_output_tokens=8192,
-                    top_p=args.top_p,)
-                )
+                if "gemini-2.5-flash" in MODEL_NAME:
+                    chat = client.chats.create(
+                        model=MODEL_NAME, 
+                        config=types.GenerateContentConfig(
+                        system_instruction=SYS_INSTRUCTION,
+                        thinking_config=types.ThinkingConfig(
+                            thinking_budget=24576
+                            )
+                        ),
+                    )
+                else:
+                    chat = client.chats.create(
+                        model=MODEL_NAME, 
+                        config=types.GenerateContentConfig(
+                        system_instruction=SYS_INSTRUCTION,
+                        temperature=args.temperature,
+                        top_p=args.top_p,)
+                    )
                 
                 exam_passed = False
 
