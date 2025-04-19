@@ -245,6 +245,8 @@ You may use the provided utilities as needed. Your final answer must consist of 
 
                 if "o4" in args.model_path.lower():
                     completion, usage = make_completion_openai_reasoner(prompt, MODEL_NAME)
+                elif "gpt-4" in args.model_path.lower():
+                    completion, usage = make_completion_openai(prompt, MODEL_NAME)
                 elif "deepseek" in args.model_path.lower():
                     response = make_completion_deepseek(SYS_INSTRUCTION, prompt, MODEL_NAME)
                     completion = response.choices[0].message.content.strip()
