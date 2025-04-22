@@ -19,7 +19,7 @@ from huggingface_hub import login
 from typing import Optional
 from dataclasses import dataclass, field
 from datetime import datetime
-from src.benchmark.utils import check_mandatory_tests
+from src.benchmark.utils import check_mandatory_tests, extract_python_code, exec_python_tests_and_parse
 # Load variables from the .env file
 load_dotenv()
 
@@ -120,7 +120,7 @@ def compile_exam(year, session, exams_dir="exams"):
     session_dir = session
     
     solution_dir = f"{args.out_dir}/{exams_dir}/{MODEL_NAME}/{now_dir}/{year_dir}/{session_dir}/sol1"
-    range_to_consider = range(args.n_out_sequences) if arg.mode != "agent" else range(args.n_sampling)
+    range_to_consider = range(args.n_out_sequences) if args.mode != "agent" else range(args.n_sampling)
 
     for k in range_to_consider:
         # create utils
@@ -469,7 +469,7 @@ if __name__ == "__main__":
         dataset = dataset.select(range(args.max_samples))
 
     
-    if args.mode == "agent":
+    if args.mode == "agent" and "python" not in args.dataset_path:
 
         logger.info("Creating exams...")
         create_exams(dataset)
@@ -492,46 +492,65 @@ if __name__ == "__main__":
     SYS_INSTRUCTION = """You are an expert Java developer. Your task is to solve the given university-level Java exam in a single attempt, ensuring that your solution correctly passes all JUnit tests defined in the provided `Test.java` file.  
 
 You may use the provided utility Java files as needed. Your final answer must consist of one or more Java scripts, each enclosed separately between ```java and ``` in different code blocks."""
+    
+    if "python" in args.dataset_path:
+        SYS_INSTRUCTION = """You are an expert Python developer. Your task is to solve the given university-level Python exam in a single attempt, ensuring that your solution correctly passes all unit tests defined in the provided `test.py` script.  
+
+You may use the provided utilities as needed. Your final answer must consist of one Python script including only the solution to the problem, enclosed between ```python and ```."""
 
     prompts = []
     for i, item in enumerate(dataset):
+        package_line = ""
+        if not "python" in args.dataset_path:
+            PROMPT_TEMPLATE = """### Utility Files:\n\n{utility_files}\n\n### Test File:\n```java\n\n{test_file}```"""
+            
+            utilities = item['utility_classes']
 
-        PROMPT_TEMPLATE = """### Utility Files:\n\n{utility_files}\n\n### Test File:\n```java\n\n{test_file}```"""
+            test_content = item['test']['content']
+
+            # # correct specific human errors of mispelling on specific test data
+            # if item['year'] == "2020" and item['session'] == "a05":
+            #     test_content = test_content.replace("createRechargableBattery", "createRechargeableBattery")
+            #     test_content = test_content.replace("createSecureAndRechargableBattery", "createSecureAndRechargeableBattery")
+
+            # # fix consistency in package path
+            # test_content = test_content.replace('.e1;','.sol1;').replace('.sol2;','.sol1;').replace('.e2;','.sol1;')
+            
+            package_line, test_content = extract_and_remove_package_line(java_code=test_content)
+            test_file = f"// {item['test']['filename']}\n\n{test_content}"
+
+            utility_files = ""
+            for util_class in utilities:
+                # fix consistency in package path
+                _, util_class_content = extract_and_remove_package_line(util_class['content'].strip())#.replace('.e1;','.sol1;').replace('.sol2;','.sol1;').replace('.e2;','.sol1;').strip()
+                utility_files += f"```java\n// {util_class['filename']}\n\n{util_class_content}```\n"
+
+            prompt = PROMPT_TEMPLATE.format(utility_files=utility_files, test_file=test_file)
+        else:
+            PROMPT_TEMPLATE = """```python\n\n### Utility\n\n{utility}\n\n### Test\n\n{test}```"""
+            utilities = item['utility_classes']
+            test_content = item['test']['content']
+            prompt = PROMPT_TEMPLATE.format(utility=utilities, test=test_content)
+
         
-        utilities = item['utility_classes']
-
-        test_content = item['test']['content']
-
-        # # correct specific human errors of mispelling on specific test data
-        # if item['year'] == "2020" and item['session'] == "a05":
-        #     test_content = test_content.replace("createRechargableBattery", "createRechargeableBattery")
-        #     test_content = test_content.replace("createSecureAndRechargableBattery", "createSecureAndRechargeableBattery")
-
-        # # fix consistency in package path
-        # test_content = test_content.replace('.e1;','.sol1;').replace('.sol2;','.sol1;').replace('.e2;','.sol1;')
-        
-        package_line, test_content = extract_and_remove_package_line(java_code=test_content)
-        test_file = f"// {item['test']['filename']}\n\n{test_content}"
-
-        utility_files = ""
-        for util_class in utilities:
-            # fix consistency in package path
-            _, util_class_content = extract_and_remove_package_line(util_class['content'].strip())#.replace('.e1;','.sol1;').replace('.sol2;','.sol1;').replace('.e2;','.sol1;').strip()
-            utility_files += f"```java\n// {util_class['filename']}\n\n{util_class_content}```\n"
 
         if "OlympicCoder" in args.model_path:
             
             messages = [
-                {"role": "user", "content": SYS_INSTRUCTION.replace('You are an expert Java developer.', '').strip() + "\n\n" + PROMPT_TEMPLATE.format(utility_files=utility_files, test_file=test_file)}
+                {"role": "user", "content": SYS_INSTRUCTION.replace('You are an expert Java developer.', '').strip() + "\n\n" + prompt}
             ]
         
         if "Qwen2.5-Coder" in args.model_path:
             
             messages = [
                 {"role": "system", "content": "You are Qwen, created by Alibaba Cloud. You are a helpful assistant."},
-                {"role": "user", "content": SYS_INSTRUCTION.replace('You are an expert Java developer.', '').strip() + "\n\n" + PROMPT_TEMPLATE.format(utility_files=utility_files, test_file=test_file)}
+                {"role": "user", "content": SYS_INSTRUCTION.replace('You are an expert Java developer.', '').strip() + "\n\n" + prompt}
             ]
-       
+        if "deepseek-coder" in args.model_path:
+            messages = [
+                {"role": "user", "content": SYS_INSTRUCTION.replace('You are an expert Java developer.', '').strip() + "\n\n" + prompt}
+            ]
+            
         text = tokenizer.apply_chat_template(
             messages,
             tokenize=False,
@@ -549,7 +568,7 @@ You may use the provided utility Java files as needed. Your final answer must co
     # save first 5 prompts to txt file
     os.makedirs(args.out_dir + "/prompts", exist_ok=True)
     n_prompts_to_stamp = 5 if args.max_samples > 5 else args.max_samples
-    with open(args.out_dir + f'/prompts/example_prompts_{MODEL_NAME}.txt', 'w') as f:
+    with open(args.out_dir + f'/prompts/example_prompts_{MODEL_NAME}.txt', 'a') as f:
         for i in range(n_prompts_to_stamp):
             f.write(f"ID: {prompts[i]['id']}\n")
             f.write(prompts[i]['prompt'])
@@ -568,8 +587,8 @@ You may use the provided utility Java files as needed. Your final answer must co
     logger.info(f"Number of batches: {len(batches)}")
     logger.info(f"Number of prompts in each batch: {len(batches[0]) * args.n_out_sequences}")
 
-    pass_k = args.n_out_sequences if args.mode == "cot" else args.n_sampling
-    out_path = args.out_dir + f"/completions/{MODEL_NAME}/{args.mode}/pass{pass_k}/{now_dir}"
+    n_samples = args.n_out_sequences if args.mode == "cot" else args.n_sampling
+    out_path = args.out_dir + f"/completions/{MODEL_NAME}/{args.mode}/n{n_samples}/{now_dir}"
     os.makedirs(out_path, exist_ok=True)
 
     start_time_all = time.time()
@@ -588,19 +607,44 @@ You may use the provided utility Java files as needed. Your final answer must co
                 completions = [o.text.strip() for o in out.outputs]
 
                 for completion in completions:
+                    if not "python" in args.dataset_path:
+                        java_codes = []
+                        if "OlympicCoder" in MODEL_NAME and "</think>" in completion:
+                            completion = completion.split("</think>")[1].strip()
+                        
+                        java_codes = extract_java_code(completion)
+                        java_codes = [packages[id_out] + "\n\n" + code for code in java_codes]
+                
+                        java_codes = [{'filename': extract_filename(java_code), "content": java_code} for java_code in java_codes]
 
-                    java_codes = []
-                    if "OlympicCoder" in MODEL_NAME and "</think>" in completion:
-                        completion = completion.split("</think>")[1].strip()
-                    
-                    java_codes = extract_java_code(completion)
-                    java_codes = [packages[id_out] + "\n\n" + code for code in java_codes]
-            
-                    java_codes = [{'filename': extract_filename(java_code), "content": java_code} for java_code in java_codes]
-
-                    with open(f"{out_path}/completions_{args.mode}.jsonl", 'a') as f:
-                        json.dump({"id": ids[id_out], "code": java_codes, "completion": completion}, f, ensure_ascii=False)
-                        f.write('\n')
+                        with open(f"{out_path}/completions_{args.mode}.jsonl", 'a') as f:
+                            json.dump({"id": ids[id_out], "code": java_codes, "completion": completion}, f, ensure_ascii=False)
+                            f.write('\n')
+                    else:
+                        python_code = extract_python_code(completion)
+                        res_dict = {"id": ids[id_out], "code": python_code, "completion": completion}
+                        with open(f"{out_path}/completions_{args.mode}_python.jsonl", 'a') as f:
+                            json.dump(res_dict, f, ensure_ascii=False)
+                            f.write('\n')
+                            
+                        year = ids[id_out].split("_")[0].replace("oop","").strip()
+                        session = ids[id_out].split("_")[1].strip()
+                        results = exec_python_tests_and_parse(args, dataset, python_code=python_code, year=year, session=session, now_dir=now_dir, k=id_out if args.n_out_sequences > 1 else None)
+                        logger.info(results)
+                        result_json = {
+                            "year": year,
+                            "session": session,
+                            "compile_errors": [],
+                            "runtime_errors": results['runtime_errors'] if results['runtime_errors'] else [{}],
+                            "compilation_passed": True,
+                            "runtime_passed": True if results['overall_status'] == "OK" else False,
+                            "test_details": results['details']
+                        }
+                        result_json = check_mandatory_tests(result_json, optional_conditions)
+                        
+                        with open(f"{out_path}/unittest_{args.mode}_python.jsonl", 'a') as f:
+                            json.dump(result_json, f, ensure_ascii=False)
+                            f.write('\n')
 
         elif args.mode == "agent":
             
@@ -631,65 +675,101 @@ You may use the provided utility Java files as needed. Your final answer must co
                     logger.info(f" ########### COMPLETION ############")
 
                     logger.info(f"{completion}")
+
+                    messages[id_out].append({"role": "assistant", "content": completion.strip()})
+
                     
-                    java_codes = []
                     if "OlympicCoder" in MODEL_NAME and "</think>" in completion:
                         completion = completion.split("</think>")[1].strip()
                     
-                    java_codes = extract_java_code(completion)
-                    java_codes = [packages[id_out] + "\n\n" + code for code in java_codes]
+                    if "python" not in args.dataset_path:
+                        code_language = "java"
+                        java_codes = []
+                        java_codes = extract_java_code(completion)
+                        java_codes = [packages[id_out] + "\n\n" + code for code in java_codes]
 
-                    #logger.info(f" ########### JAVA CODE ############")
-                    #logger.info(f"{java_codes}")
-                    exam_passed = False
+                        #logger.info(f" ########### JAVA CODE ############")
+                        #logger.info(f"{java_codes}")
+                        exam_passed = False
 
-                    if java_codes:
-                        compile_errors, runtime_errors, test_details = exec_java_code(java_codes, years[id_out], sessions[id_out], now_dir, k=id_out if num_attempts > 1 else None)
+                        if java_codes:
+                            compile_errors, runtime_errors, test_details = exec_java_code(java_codes, years[id_out], sessions[id_out], now_dir, k=id_out if num_attempts > 1 else None)
 
+                            result_json = {
+                                "year": years[id_out],
+                                "session": sessions[id_out],
+                                "compile_errors": compile_errors,
+                                "runtime_errors": runtime_errors,
+                                "compilation_passed": False if compile_errors else True,
+                                "runtime_passed": False if runtime_errors or compile_errors else True,
+                                "test_details": test_details,
+                                "chat_history": messages[id_out]
+                            }
+
+                            result_json = check_mandatory_tests(result_json, optional_conditions)
+
+                        else:
+                            # No Java code found - record this as an error
+                            compile_errors = [{"year": years[id_out], "session": sessions[id_out], "error": "No valid Java code found in completion"}]  
+                            result_json = {
+                                "year": years[id_out],
+                                "session": sessions[id_out],
+                                "compile_errors": compile_errors,
+                                "runtime_errors": [],
+                                "compilation_passed": False,
+                                "runtime_passed": False,
+                                "test_details": "",
+                                "chat_history": messages[id_out],
+                                "runtime_passed_mandatory": False
+                            }
+                    else:
+                        code_language = "python"
+                        exam_passed = False
+                        python_code = extract_python_code(completion)
+                        # res_dict = {"id": ids[id_out], "code": python_code, "completion": completion}
+                        # with open(f"{out_path}/completions_{args.mode}_python.jsonl", 'a') as f:
+                        #     json.dump(res_dict, f, ensure_ascii=False)
+                        #     f.write('\n')
+                        
+                        year = ids[id_out].split("_")[0].replace("oop","").strip()
+                        session = ids[id_out].split("_")[1].strip()
+                        results = exec_python_tests_and_parse(args, dataset, python_code=python_code, year=year, session=session, now_dir=now_dir, k=id_out if args.n_out_sequences > 1 else None)
+                        logger.info(results)
+                        compile_errors = results['compile_errors']
+                        runtime_errors = results['runtime_errors']
                         result_json = {
-                            "year": years[id_out],
-                            "session": sessions[id_out],
-                            "compile_errors": compile_errors,
-                            "runtime_errors": runtime_errors,
-                            "compilation_passed": False if compile_errors else True,
-                            "runtime_passed": False if runtime_errors or compile_errors else True,
-                            "test_details": test_details,
-                            "chat_history": messages
+                            "year": year,
+                            "session": session,
+                            "compile_errors": [],
+                            "runtime_errors": results['runtime_errors'] if results['runtime_errors'] else [{}],
+                            "compilation_passed": True,
+                            "runtime_passed": True if results['overall_status'] == "OK" else False,
+                            "test_details": results['details'],
+                            "chat_history": messages[id_out]
                         }
-
                         result_json = check_mandatory_tests(result_json, optional_conditions)
 
-                    else:
-                        # No Java code found - record this as an error
-                        compile_errors = [{"year": years[id_out], "session": sessions[id_out], "error": "No valid Java code found in completion"}]  
-                        result_json = {
-                            "year": years[id_out],
-                            "session": sessions[id_out],
-                            "compile_errors": compile_errors,
-                            "runtime_errors": [],
-                            "compilation_passed": False,
-                            "runtime_passed": False,
-                            "test_details": "",
-                            "chat_history": messages,
-                            "runtime_passed_mandatory": False
-                        }
-
                     if compile_errors:
-                        messages[id_out].append({"role": "assistant", "content": completion.strip()})
-                        messages[id_out].append({"role": "user", "content": f"Correct the compilation error. Rewrite your code from scratch while ensuring correctness.\n\n```output\n{compile_errors}\n```\n"})
+                        
+                        if "python" not in args.dataset_path:
+                            messages[id_out].append({"role": "user", "content": f"Correct the compilation error. Rewrite your code from scratch while ensuring correctness.\n\n```output\n{compile_errors}\n```\n"})
+                        else:
+                            messages[id_out].append({"role": "user", "content": f"Correct the error. Modify only the necessary sections while preserving the rest of your code. Ensure that your response includes your full corrected code.\n\n```output\n{runtime_errors}\n```"})
                     
                     elif runtime_errors:
-                        messages[id_out].append({"role": "assistant", "content": completion.strip()})
-                        messages[id_out].append({"role": "user", "content": f"Correct the runtime error. Modify only the necessary sections while preserving the rest of your code. Ensure that your response includes your full corrected code.\n\n```output\n{runtime_errors}\n```"})
-                    
+                        
+                        if "python" not in args.dataset_path:
+                            messages[id_out].append({"role": "user", "content": f"Correct the runtime error. Modify only the necessary sections while preserving the rest of your code. Ensure that your response includes your full corrected code.\n\n```output\n{runtime_errors}\n```"})
+                        else:
+                            messages[id_out].append({"role": "user", "content": f"Correct the runtime error. Modify only the necessary sections while preserving the rest of your code. Ensure that your response includes your full corrected code.\n\n```output\n{runtime_errors}\n```"})
                     else:
                         exam_passed = True
                         logger.info("EXAM PASSED!")
 
-                        messages[id_out].append({"role": "assistant", "content": completion.strip()})
+                        
                         messages[id_out].append({"role": "user", "content": f"Congrats, all tests passed!"})
 
-                        with open(f"{out_path}/completions_{args.mode}.jsonl", 'a') as f:
+                        with open(f"{out_path}/completions_{args.mode}_{code_language}.jsonl", 'a') as f:
                             json.dump(result_json, f, ensure_ascii=False)
                             f.write('\n')
 
@@ -700,7 +780,19 @@ You may use the provided utility Java files as needed. Your final answer must co
                             tokenize=False,
                             add_generation_prompt=True
                         )
-                        
+
+                        num_tokens = len(tokenizer.encode(text))
+                        if num_tokens > args.max_model_len:
+                            logger.info(f"Prompt too long ({num_tokens} tokens). Exam '{years[id_out]}_{sessions[id_out]}' not passed. Id attempt: {id_out}.")
+                            
+                            messages[id_out].append({"role": "user", "content": f"Reached maximum number of tokens. Exam not passed."})
+                            
+                            with open(f"{out_path}/completions_{args.mode}_{code_language}.jsonl", 'a') as f:
+                                json.dump(result_json, f, ensure_ascii=False)
+                                f.write('\n')
+
+                            continue
+                           
                         batch_data[n_round+1].append({
                             "id": ids[id_out],
                             "prompt": text,
@@ -712,7 +804,7 @@ You may use the provided utility Java files as needed. Your final answer must co
                         logger.info("Exam NOT passed.")
                         #messages[id_out].append({"role": "assistant", "content": completion})
                                  
-                        with open(f"{out_path}/completions_{args.mode}.jsonl", 'a') as f:
+                        with open(f"{out_path}/completions_{args.mode}_{code_language}.jsonl", 'a') as f:
                             json.dump(result_json, f, ensure_ascii=False)
                             f.write('\n')
         
