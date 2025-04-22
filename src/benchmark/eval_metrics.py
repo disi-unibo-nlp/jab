@@ -8,10 +8,18 @@ import logging
 import os
 from collections import defaultdict
 
+
+# out/completions/gemini-2.0-flash-thinking-exp-01-21/agent/pass1/2025-04-11_08-29-16/completions_agent.jsonl
+# out/completions/gemini-2.0-flash-thinking-exp-01-21/cot/pass1/2025-04-09_09-34-57/junit_results.jsonl
+# out/completions/gemini-2.0-flash-thinking-exp-01-21/cot/pass1/2025-04-15_08-56-40/completions_cot.jsonl
+# out/completions/Qwen2.5-Coder-7B-Instruct/cot/pass10/2025-04-03_11-10-59/junit_results.jsonl
+# out/completions/gemini-2.5-pro-exp-03-25/cot/pass1/2025-04-15_20-21-11/junit_results.jsonl
+# out/completions/gemini-2.0-flash-thinking-exp-01-21/cot/pass1/2025-04-16_09-19-20/unittest_cot_python.jsonl
+
 def parse_arguments():
     parser = argparse.ArgumentParser(description="Script Arguments")
     
-    parser.add_argument("--junit_test_path", type=str, default="out/completions/QwQ-32B/cot/pass1/2025-04-17_18-34-27/junit_results.jsonl", help="Model's HF directory or local path")
+    parser.add_argument("--junit_test_path", type=str, default="out/completions/Qwen2.5-Coder-7B-Instruct/agent/n1/2025-04-22_21-54-40/completions_agent_python.jsonl", help="Model's HF directory or local path")
     parser.add_argument("--out_dir", type=str, default="./eval_metrics", help="Outputs directory")
     parser.add_argument("--k", type=int, default=1, help="value of K in Pass@k")
     parser.add_argument("--max_score", type=int, default=14, help="max reachable score in the written part of the exam.")
@@ -97,7 +105,8 @@ def calculate_scores(grouped_list, filter_by_year=None):
         logger.info(f"\n")
         logger.info(f"Number of sessions: {len(grouped_list)}")
 
-    num_samples = [k] * len(grouped_list)
+    num_samples = [len(el['attempts']) for el in grouped_list] #* len(grouped_list)
+    print(f"Num samples: {num_samples}")
     num_correct_compilations = []
     num_correct_runtime = []
     num_correct_runtime_mandatory = []
@@ -145,19 +154,20 @@ if __name__ == "__main__":
     out_dir = f"{args.out_dir}/{model_name}/pass{args.k}"
     os.makedirs(out_dir, exist_ok=True)
 
+    model_name = args.junit_test_path.split("/")[2]
+    mode = args.junit_test_path.split("/")[3]
+    k = args.k
+    code_language = "java" if "python" not in args.junit_test_path else "python"
+
     logging.basicConfig(level=logging.DEBUG,
         datefmt="%m/%d/%Y %H:%M:%S",
         format="[%(asctime)s] {%(filename)s:%(lineno)d} %(levelname)s - %(message)s",
-        filename=f"{out_dir}/eval_metrics.log",
+        filename=f"{out_dir}/eval_metrics_{mode}_{code_language}.log",
         filemode='w')
 
     logger = logging.getLogger(__name__)
     logger.addHandler(logging.StreamHandler())
 
-    
-    model_name = args.junit_test_path.split("/")[2]
-    mode = args.junit_test_path.split("/")[3]
-    k = args.k
 
     with open(args.junit_test_path) as f:
         results = [json.loads(line) for line in f.readlines()]
