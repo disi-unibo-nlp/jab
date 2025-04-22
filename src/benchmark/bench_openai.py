@@ -37,6 +37,7 @@ def parse_arguments():
     parser.add_argument("--junit_jar", default= "lib/junit-platform-console-standalone-1.13.0-M2.jar", help="Path to the JUnit standalone JAR file.")
     parser.add_argument("--logs_dir", default= "./logs", help="Path to the JUnit standalone JAR file.")
     parser.add_argument("--last_now_dir_path", default= "", help="To store results in the same path of last run.")
+    parser.add_argument("--batch_api", action="store_true", default=False, help="Enable batch API mode if set.")
 
     return parser.parse_args()
 
@@ -63,10 +64,14 @@ def make_completion_deepseek(system_instruction, prompt, model_name):
         print(e)
         return ""
 
-def make_completion_openai(prompt, model_name="gpt-4.1-2025-04-14"):
+def make_completion_openai(system_instruction, prompt, model_name="gpt-4.1-2025-04-14"):
     response = client.responses.create(
         model=model_name,
         input=[
+            {
+                "role": "system", 
+                "content": system_instruction
+            },
             {
                 "role": "user", 
                 "content": prompt
@@ -207,13 +212,14 @@ You may use the provided utilities as needed. Your final answer must consist of 
 
     out_path = args.out_dir + f"/completions/{MODEL_NAME}/{args.mode}/pass{pass_k}/{now_dir}"
     os.makedirs(out_path, exist_ok=True)
-
+    total_prompts = 0
     for i, item in enumerate(tqdm(dataset)): 
         
         year = item['year']
         session = item['session']
         id_exam = f"oop{year}_{session}"
-        
+
+
         if not "python" in args.dataset_path:
             PROMPT_TEMPLATE = """### Utility Files:\n\n{utility_files}\n\n### Test File:\n```java\n\n{test_file}```"""
             
@@ -237,6 +243,21 @@ You may use the provided utilities as needed. Your final answer must consist of 
             test_content = item['test']['content']
             prompt = PROMPT_TEMPLATE.format(utility=utilities, test=test_content)
 
+
+        if args.batch_api: 
+            batch_request = {"custom_id": "", "method": "POST", "url": "/v1/chat/completions", "body": {"model": args.model_path, "messages": [{"role": "system", "content": SYS_INSTRUCTION}], "temperature": args.temperature}}
+            batch_request['body']["messages"].append({"role": "user", "content": prompt})
+        
+            
+            for k in range(args.n_samplings):
+                batch_request["custom_id"] = f"request-{id_exam}-{k}"
+                with open(f'{out_path}/input_batch.jsonl', 'a') as f:
+                    json.dump(batch_request, f, ensure_ascii=False)
+                    f.write("\n")
+                    total_prompts+=1
+            
+            continue
+
         for k in range(args.n_samplings):
 
             if args.mode == "cot":
@@ -244,9 +265,10 @@ You may use the provided utilities as needed. Your final answer must consist of 
                 logger.info(f"EXAM: {item['year']}_{item['session']}")
 
                 if "o4" in args.model_path.lower():
+                    prompt = SYS_INSTRUCTION.replace("You are an expert Java developer.", "").strip() + "\n\n" + prompt
                     completion, usage = make_completion_openai_reasoner(prompt, MODEL_NAME)
                 elif "gpt-4" in args.model_path.lower():
-                    completion, usage = make_completion_openai(prompt, MODEL_NAME)
+                    completion, usage = make_completion_openai(SYS_INSTRUCTION, prompt, MODEL_NAME)
                 elif "deepseek" in args.model_path.lower():
                     response = make_completion_deepseek(SYS_INSTRUCTION, prompt, MODEL_NAME)
                     completion = response.choices[0].message.content.strip()
@@ -447,6 +469,33 @@ You may use the provided utilities as needed. Your final answer must consist of 
 
                 #         time.sleep(5)
 
+    ### Handling batch API
+    if args.batch_api:
+        logger.info(f"UNIQUE PROMPTS: {total_prompts / args.n_samplings}")
+        logger.info(f"TOTAL PROMPTS: {total_prompts}")
+
+        batch_input_file = client.files.create(
+        file=open(f"{out_path}/input_batch.jsonl", "rb"),
+        purpose="batch"
+        )
+
+        batch_input_file_id = batch_input_file.id
+
+        batch_obj = client.batches.create(
+            input_file_id=batch_input_file_id,
+            endpoint="/v1/chat/completions",
+            completion_window="24h",
+            metadata={
+            "description": "Running batch inference for JAB benchmark."
+            }
+        )
+        logger.info(batch_obj)
+
+        batch_id = batch_obj.id
+        logger.info(f"BATCH ID: {batch_id}")
+
+        with open(f'{out_path}/batch_id.txt', 'w') as f:
+            f.write(batch_id)
 
                     
 
