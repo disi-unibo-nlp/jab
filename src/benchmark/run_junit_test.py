@@ -16,7 +16,7 @@ load_dotenv()
 def parse_arguments():
     parser = argparse.ArgumentParser(description="Script Arguments")
     
-    parser.add_argument("--completions_path", type=str, default="out/completions/gemini-2.0-flash-thinking-exp-01-21/cot/pass1/2025-04-09_09-34-57/completions_cot.jsonl", help="Model's HF directory or local path")
+    parser.add_argument("--completions_path", type=str, default="out/completions/gemini-2.0-flash-thinking-exp-01-21/cot/pass1/2025-04-15_08-56-40/completions_cot.jsonl", help="Model's HF directory or local path")
     parser.add_argument("--model_names", type=str, default="gemini-2.0-flash-thinking-exp-01-21", help="Dataset HF directory")
     parser.add_argument("--out_dir", type=str, default="./out", help="Outputs directory")
     parser.add_argument("--max_samples", type=int, default=-1, help="Maximum number of data to process in train set. Default is -1 to process all data.")
@@ -321,8 +321,8 @@ if __name__ == "__main__":
                         .replace(".sol2;", ".sol1;")
                         .replace(".e2;", ".sol1;")
                         .replace('.sol1.', f'.sol1.{new_folder}.')
-                        .replace(".sol1.Evaluation", f".sol1.{new_folder}.Evaluation")
-                        .replace("import static ex2015.a01a.sol1.", f"import static ex2015.a01a.sol1.{new_folder}.")
+                        #.replace(".sol1.Evaluation", f".sol1.{new_folder}.Evaluation")
+                        #.replace("import static ex2015.a01a.sol1.", f"import static ex2015.a01a.sol1.{new_folder}.")
                         .replace(".sol1;", f".sol1.{new_folder};")
                     )
 
@@ -353,7 +353,7 @@ if __name__ == "__main__":
                     test_content.replace('.e1;', '.sol1;')
                                 .replace('.sol2;', '.sol1;')
                                 .replace('.e2;', '.sol1;')
-                                .replace('.sol1.Evaluation', f'.sol1.{new_folder}.Evaluation')
+                                #.replace('.sol1.Evaluation', f'.sol1.{new_folder}.Evaluation')
                                 .replace('.sol1.', f'.sol1.{new_folder}.')
                                 .replace('.sol1;', f'.sol1.{new_folder};')
                 )
