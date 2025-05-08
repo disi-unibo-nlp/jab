@@ -19,7 +19,7 @@ from collections import defaultdict
 def parse_arguments():
     parser = argparse.ArgumentParser(description="Script Arguments")
     
-    parser.add_argument("--junit_test_path", type=str, default="out/completions/Qwen2.5-Coder-7B-Instruct/agent/n1/2025-04-22_21-54-40/completions_agent_python.jsonl", help="Model's HF directory or local path")
+    parser.add_argument("--junit_test_path", type=str, default="out/completions/Qwen2.5-Coder-32B-Instruct-AWQ/cot/n1/2025-04-27_11-39-42/junit_results.jsonl", help="Model's HF directory or local path")
     parser.add_argument("--out_dir", type=str, default="./eval_metrics", help="Outputs directory")
     parser.add_argument("--k", type=int, default=1, help="value of K in Pass@k")
     parser.add_argument("--max_score", type=int, default=14, help="max reachable score in the written part of the exam.")
@@ -111,6 +111,7 @@ def calculate_scores(grouped_list, filter_by_year=None):
     num_correct_runtime = []
     num_correct_runtime_mandatory = []
     all_grades = []
+    all_grades_compiled = []
     max_score = args.max_score
     for exam_session in grouped_list:
         session_attempts = exam_session['attempts']
@@ -133,7 +134,8 @@ def calculate_scores(grouped_list, filter_by_year=None):
                     point_per_test = max_score / num_tests
                     final_grade = round(test_success * point_per_test)
 
-                all_grades.append({"id": exam_session['id'], "grade": final_grade})
+                all_grades_compiled.append({"id": exam_session['id'], "grade": final_grade / max_score * 100})
+                all_grades.append({"id": exam_session['id'], "grade": final_grade / max_score * 100})
             
             else:
                 # compilation error
@@ -143,8 +145,10 @@ def calculate_scores(grouped_list, filter_by_year=None):
     compilation_k = format(round(np.mean(estimate_pass_k(num_samples, num_correct_compilations, k, mode="at")) * 100, 1), ".1f")
     pass_k_mandatory = format(round(np.mean(estimate_pass_k(num_samples, num_correct_runtime_mandatory, k, mode="at")) * 100, 1), ".1f")
     pass_k = format(round(np.mean(estimate_pass_k(num_samples, num_correct_runtime, k, mode="at")) * 100, 1), ".1f")
-
-    return compilation_k, pass_k_mandatory, pass_k
+    final_grade_compiled = round(np.mean([el['grade'] for el in all_grades_compiled]), 1)
+    final_grade = round(np.mean([el['grade'] for el in all_grades]), 1)
+    
+    return compilation_k, pass_k_mandatory, pass_k, final_grade_compiled, final_grade
 
 
 if __name__ == "__main__":
@@ -183,17 +187,41 @@ if __name__ == "__main__":
 
     logger.info(f"Number of exam session: {len(grouped_list)}")
 
-    compilation_k, pass_k_mandatory, pass_k = calculate_scores(grouped_list)
+    compilation_k, pass_k_mandatory, pass_k, final_grade_compiled, final_grade = calculate_scores(grouped_list)
 
     logger.info("-"*25)
     logger.info(f"Mean compilation@{k}: {compilation_k}")
     logger.info(f"Mean pass@{k} - SOFT: {pass_k_mandatory}")
     logger.info(f"Mean pass@{k} - HARD: {pass_k}")
+    logger.info(f"Final Grade (compilation succeed): {final_grade_compiled}")
+    logger.info(f"Final Grade: {final_grade}")
     logger.info("-"*25)
     logger.info("\n")
 
+    with open(args.out_dir + f"/overall_results_{mode}_pass{k}.jsonl", "a") as f:
+        out_dict = {
+            "model": model_name,
+            "size": "",
+            "date": "",
+            "closed": "",
+            f"comp_{k}": float(compilation_k),
+            f"S-pass{k}": float(pass_k_mandatory),
+            f"H-pass{k}": float(pass_k),
+            "final_grade": float(final_grade),
+            "final_grade_compiled": float(final_grade_compiled)
+        }
+        f.write(json.dumps(out_dict) + "\n")
+
+    out_dict_per_year_soft = {
+        "model": model_name,
+    }
+
+    out_dict_per_year_hard = {
+        "model": model_name,
+    }
+
     for year in range(2014, 2025):
-        compilation_k, pass_k_mandatory, pass_k = calculate_scores(grouped_list, filter_by_year=str(year))
+        compilation_k, pass_k_mandatory, pass_k, final_grade_compiled, final_grade = calculate_scores(grouped_list, filter_by_year=str(year))
         
         logger.info("-"*25)
         logger.info(f"YEAR: {year}")
@@ -201,6 +229,17 @@ if __name__ == "__main__":
         logger.info(f"Mean compilation@{k}: {compilation_k}")
         logger.info(f"Mean pass@{k} - SOFT: {pass_k_mandatory}")
         logger.info(f"Mean pass@{k} - HARD: {pass_k}")
+        logger.info(f"Final Grade (compilation succeed): {final_grade_compiled}")
+        logger.info(f"Final Grade: {final_grade}")
+
+        out_dict_per_year_soft[str(year)] = float(pass_k_mandatory)
+        out_dict_per_year_hard[str(year)] = float(pass_k)
+
+    with open(args.out_dir + f"/results_per_year_{mode}_pass{k}_SOFT.jsonl", "a") as f:
+        f.write(json.dumps(out_dict_per_year_soft) + "\n")
+    
+    with open(args.out_dir + f"/results_per_year_{mode}_pass{k}_HARD.jsonl", "a") as f:
+        f.write(json.dumps(out_dict_per_year_hard) + "\n")
         
         
 
