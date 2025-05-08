@@ -172,7 +172,136 @@ def create_exams(args, dataset, now_dir, exams_dir="exams"):
 
                 f.write(test_content)
 
-def exec_python_tests_and_parse(args, dataset, python_code, year, session, now_dir, k=None, exams_dir="exams_python"):
+# def exec_python_tests_and_parse(args, dataset, python_code, year, session, now_dir, k=None, exams_dir="exams_python"):
+#     year_dir = f"oop{year}"
+#     session_dir = session
+#     item_exam = dataset.filter(lambda x: str(x['year']) == str(year) and x['session'] == session)
+   
+#     python_code = item_exam['utility_classes'][0]['content'] + "\n\n" + python_code + "\n\n" + item_exam['test'][0]['content']
+
+#     solution_dir = f"{args.out_dir}/{exams_dir}/{args.model_path.replace('.', '')}/{args.mode}/{now_dir}/{year_dir}/{session_dir}/sol1"
+#     new_folder = f"k{k}" if not k is None else "pass1"
+#     actual_sol_dir = solution_dir + f"/{new_folder}"
+
+#     os.makedirs(actual_sol_dir, exist_ok=True)
+
+
+    
+#     code_filename = "test"
+#     if code_filename and code_filename != "Test":
+        
+#         #code = code.replace('.e1;','.sol1;').replace('.sol2;','.sol1;').replace('.e2;','.sol1;').replace('.sol1.',f'.sol1.{new_folder}.').replace('.sol1;', f'.sol1.{new_folder};')
+#         with open(os.path.join(actual_sol_dir, code_filename + ".py"), 'w') as f:
+#             f.write(python_code)
+
+#     script_path = os.path.join(actual_sol_dir, code_filename).replace("./","").replace("/", ".")
+#     command = ['python3', '-m', 'unittest', '-v', script_path]
+#     process = subprocess.run(command, capture_output=True, text=True, check=False)
+
+    
+#     # After running the command and capturing output...
+#     stdout_output = process.stdout
+#     stderr_output = process.stderr
+#     results = {
+#         'runtime_errors': [],  # Initialize the key right away
+#         'compile_errors': []   # Also initialize compile_errors
+#     }
+    
+#     # Use all output for parsing
+#     output_to_parse = stderr_output + stdout_output if stderr_output else stdout_output
+    
+#     fail_tests = []
+#     num_tests = 0
+#     found_tests = []
+    
+#     # First check for syntax errors
+#     if "SyntaxError:" in output_to_parse:
+#         results['overall_status'] = 'SYNTAX_ERROR'
+#         compile_error = re.search(r'(SyntaxError:.+(\n.+)*)', output_to_parse)
+#         compile_error_msg = compile_error.group(0) if compile_error else "Syntax error detected"
+#         results['compile_errors'] = [compile_error_msg]
+#         results['details'] = {
+#             "tests_found": 0,
+#             "tests_started": 0,
+#             "tests_successful": 0,
+#             "tests_failed": 0
+#         }
+#         return results
+    
+#     # Parse test results with more flexible regex patterns
+#     test_patterns = [
+#         # Pattern for test results with explicit status
+#         re.compile(r'test_(\w+)\s+\(([\w.]+)\)\s+\.\.\.\s+(ok|ERROR|FAIL|SKIP)'),
+#         # Pattern for test header lines in verbose output
+#         re.compile(r'test_(\w+)\s+\(([\w.]+)\)')
+#     ]
+    
+#     # Find all tests mentioned in the output
+#     for line in output_to_parse.splitlines():
+#         for pattern in test_patterns:
+#             match = pattern.search(line)
+#             if match:
+#                 test_name = match.group(1)
+#                 class_name = match.group(2)
+#                 full_test_name = f"{class_name}.test_{test_name}"
+                
+#                 # Only count each test once
+#                 if full_test_name not in found_tests:
+#                     found_tests.append(full_test_name)
+#                     num_tests += 1
+                
+#                 # If status is included in the pattern and it's not OK, add to fails
+#                 if len(match.groups()) >= 3 and match.group(3).lower() != "ok":
+#                     if f"test_{test_name}" not in fail_tests:
+#                         fail_tests.append(f"test_{test_name}")
+#                 break
+    
+#     # Also look for explicit error lines
+#     error_pattern = re.compile(r'ERROR: test_(\w+)|FAIL: test_(\w+)')
+#     for line in output_to_parse.splitlines():
+#         error_match = error_pattern.search(line)
+#         if error_match:
+#             test_name = error_match.group(1) or error_match.group(2)
+#             if f"test_{test_name}" not in fail_tests:
+#                 fail_tests.append(f"test_{test_name}")
+    
+#     # If we haven't found any tests yet using patterns, try counting based on the summary
+#     if num_tests == 0:
+#         summary_pattern = re.compile(r'Ran (\d+) tests in')
+#         summary_match = summary_pattern.search(output_to_parse)
+#         if summary_match:
+#             num_tests = int(summary_match.group(1))
+    
+#     # Determine overall status
+#     overall_status_found = False
+#     if "FAILED" in output_to_parse or "ERROR" in output_to_parse or fail_tests:
+#         results['overall_status'] = 'FAIL'
+#         overall_status_found = True
+#     elif "OK" in output_to_parse and ("Ran" in output_to_parse or num_tests > 0):
+#         results['overall_status'] = 'OK'
+#         overall_status_found = True
+    
+#     if not overall_status_found:
+#         results['overall_status'] = 'UNKNOWN'
+    
+#     # Fill in details
+#     results['details'] = {
+#         "tests_found": num_tests,
+#         "tests_started": num_tests,
+#         "tests_successful": num_tests - len(fail_tests),
+#         "tests_failed": len(fail_tests)
+#     }
+    
+#     # Include error information
+#     if results['overall_status'] != 'OK':
+#         results['runtime_errors'] = [{"fails": fail_tests, "error": output_to_parse}]
+#     else:
+#         results['runtime_errors'] = []
+    
+#     return results
+
+def exec_python_tests_and_parse(args, dataset, python_code, year, session, now_dir, k=None, exams_dir="exams_python", timeout=30):
+    
     year_dir = f"oop{year}"
     session_dir = session
     item_exam = dataset.filter(lambda x: str(x['year']) == str(year) and x['session'] == session)
@@ -184,119 +313,142 @@ def exec_python_tests_and_parse(args, dataset, python_code, year, session, now_d
     actual_sol_dir = solution_dir + f"/{new_folder}"
 
     os.makedirs(actual_sol_dir, exist_ok=True)
-
-
     
     code_filename = "test"
     if code_filename and code_filename != "Test":
-        
-        #code = code.replace('.e1;','.sol1;').replace('.sol2;','.sol1;').replace('.e2;','.sol1;').replace('.sol1.',f'.sol1.{new_folder}.').replace('.sol1;', f'.sol1.{new_folder};')
         with open(os.path.join(actual_sol_dir, code_filename + ".py"), 'w') as f:
             f.write(python_code)
 
     script_path = os.path.join(actual_sol_dir, code_filename).replace("./","").replace("/", ".")
     command = ['python3', '-m', 'unittest', '-v', script_path]
-    process = subprocess.run(command, capture_output=True, text=True, check=False)
-
     
-    # After running the command and capturing output...
-    stdout_output = process.stdout
-    stderr_output = process.stderr
+    # Initialize results dictionary with default values
     results = {
-        'runtime_errors': [],  # Initialize the key right away
-        'compile_errors': []   # Also initialize compile_errors
-    }
-    
-    # Use all output for parsing
-    output_to_parse = stderr_output + stdout_output if stderr_output else stdout_output
-    
-    fail_tests = []
-    num_tests = 0
-    found_tests = []
-    
-    # First check for syntax errors
-    if "SyntaxError:" in output_to_parse:
-        results['overall_status'] = 'SYNTAX_ERROR'
-        compile_error = re.search(r'(SyntaxError:.+(\n.+)*)', output_to_parse)
-        compile_error_msg = compile_error.group(0) if compile_error else "Syntax error detected"
-        results['compile_errors'] = [compile_error_msg]
-        results['details'] = {
+        'runtime_errors': [],
+        'compile_errors': [],
+        'details': {
             "tests_found": 0,
             "tests_started": 0,
             "tests_successful": 0,
             "tests_failed": 0
         }
-        return results
-    
-    # Parse test results with more flexible regex patterns
-    test_patterns = [
-        # Pattern for test results with explicit status
-        re.compile(r'test_(\w+)\s+\(([\w.]+)\)\s+\.\.\.\s+(ok|ERROR|FAIL|SKIP)'),
-        # Pattern for test header lines in verbose output
-        re.compile(r'test_(\w+)\s+\(([\w.]+)\)')
-    ]
-    
-    # Find all tests mentioned in the output
-    for line in output_to_parse.splitlines():
-        for pattern in test_patterns:
-            match = pattern.search(line)
-            if match:
-                test_name = match.group(1)
-                class_name = match.group(2)
-                full_test_name = f"{class_name}.test_{test_name}"
-                
-                # Only count each test once
-                if full_test_name not in found_tests:
-                    found_tests.append(full_test_name)
-                    num_tests += 1
-                
-                # If status is included in the pattern and it's not OK, add to fails
-                if len(match.groups()) >= 3 and match.group(3).lower() != "ok":
-                    if f"test_{test_name}" not in fail_tests:
-                        fail_tests.append(f"test_{test_name}")
-                break
-    
-    # Also look for explicit error lines
-    error_pattern = re.compile(r'ERROR: test_(\w+)|FAIL: test_(\w+)')
-    for line in output_to_parse.splitlines():
-        error_match = error_pattern.search(line)
-        if error_match:
-            test_name = error_match.group(1) or error_match.group(2)
-            if f"test_{test_name}" not in fail_tests:
-                fail_tests.append(f"test_{test_name}")
-    
-    # If we haven't found any tests yet using patterns, try counting based on the summary
-    if num_tests == 0:
-        summary_pattern = re.compile(r'Ran (\d+) tests in')
-        summary_match = summary_pattern.search(output_to_parse)
-        if summary_match:
-            num_tests = int(summary_match.group(1))
-    
-    # Determine overall status
-    overall_status_found = False
-    if "FAILED" in output_to_parse or "ERROR" in output_to_parse or fail_tests:
-        results['overall_status'] = 'FAIL'
-        overall_status_found = True
-    elif "OK" in output_to_parse and ("Ran" in output_to_parse or num_tests > 0):
-        results['overall_status'] = 'OK'
-        overall_status_found = True
-    
-    if not overall_status_found:
-        results['overall_status'] = 'UNKNOWN'
-    
-    # Fill in details
-    results['details'] = {
-        "tests_found": num_tests,
-        "tests_started": num_tests,
-        "tests_successful": num_tests - len(fail_tests),
-        "tests_failed": len(fail_tests)
     }
     
-    # Include error information
-    if results['overall_status'] != 'OK':
-        results['runtime_errors'] = [{"fails": fail_tests, "error": output_to_parse}]
-    else:
-        results['runtime_errors'] = []
+    try:
+        # Run with timeout
+        process = subprocess.run(command, capture_output=True, text=True, check=False, timeout=timeout)
+        
+        # After running the command and capturing output...
+        stdout_output = process.stdout
+        stderr_output = process.stderr
+        
+        # Use all output for parsing
+        output_to_parse = stderr_output + stdout_output if stderr_output else stdout_output
+        
+        # Existing parsing logic...
+        fail_tests = []
+        num_tests = 0
+        found_tests = []
+        
+        # First check for syntax errors
+        if "SyntaxError:" in output_to_parse:
+            results['overall_status'] = 'SYNTAX_ERROR'
+            compile_error = re.search(r'(SyntaxError:.+(\n.+)*)', output_to_parse)
+            compile_error_msg = compile_error.group(0) if compile_error else "Syntax error detected"
+            results['compile_errors'] = [compile_error_msg]
+            results['details'] = {
+                "tests_found": 0,
+                "tests_started": 0,
+                "tests_successful": 0,
+                "tests_failed": 0
+            }
+            return results
+        
+        # Parse test results with more flexible regex patterns
+        test_patterns = [
+            # Pattern for test results with explicit status
+            re.compile(r'test_(\w+)\s+\(([\w.]+)\)\s+\.\.\.\s+(ok|ERROR|FAIL|SKIP)'),
+            # Pattern for test header lines in verbose output
+            re.compile(r'test_(\w+)\s+\(([\w.]+)\)')
+        ]
+        
+        # Find all tests mentioned in the output
+        for line in output_to_parse.splitlines():
+            for pattern in test_patterns:
+                match = pattern.search(line)
+                if match:
+                    test_name = match.group(1)
+                    class_name = match.group(2)
+                    full_test_name = f"{class_name}.test_{test_name}"
+                    
+                    # Only count each test once
+                    if full_test_name not in found_tests:
+                        found_tests.append(full_test_name)
+                        num_tests += 1
+                    
+                    # If status is included in the pattern and it's not OK, add to fails
+                    if len(match.groups()) >= 3 and match.group(3).lower() != "ok":
+                        if f"test_{test_name}" not in fail_tests:
+                            fail_tests.append(f"test_{test_name}")
+                    break
+        
+        # Also look for explicit error lines
+        error_pattern = re.compile(r'ERROR: test_(\w+)|FAIL: test_(\w+)')
+        for line in output_to_parse.splitlines():
+            error_match = error_pattern.search(line)
+            if error_match:
+                test_name = error_match.group(1) or error_match.group(2)
+                if f"test_{test_name}" not in fail_tests:
+                    fail_tests.append(f"test_{test_name}")
+        
+        # If we haven't found any tests yet using patterns, try counting based on the summary
+        if num_tests == 0:
+            summary_pattern = re.compile(r'Ran (\d+) tests in')
+            summary_match = summary_pattern.search(output_to_parse)
+            if summary_match:
+                num_tests = int(summary_match.group(1))
+        
+        # Determine overall status
+        overall_status_found = False
+        if "FAILED" in output_to_parse or "ERROR" in output_to_parse or fail_tests:
+            results['overall_status'] = 'FAIL'
+            overall_status_found = True
+        elif "OK" in output_to_parse and ("Ran" in output_to_parse or num_tests > 0):
+            results['overall_status'] = 'OK'
+            overall_status_found = True
+        
+        if not overall_status_found:
+            results['overall_status'] = 'UNKNOWN'
+        
+        # Fill in details
+        results['details'] = {
+            "tests_found": num_tests,
+            "tests_started": num_tests,
+            "tests_successful": num_tests - len(fail_tests),
+            "tests_failed": len(fail_tests)
+        }
+        
+        # Include error information
+        if results['overall_status'] != 'OK':
+            results['runtime_errors'] = [{"fails": fail_tests, "error": output_to_parse}]
+        else:
+            results['runtime_errors'] = []
+    
+    except subprocess.TimeoutExpired:
+        # Handle timeout case
+        results['overall_status'] = 'TIMEOUT'
+        results['runtime_errors'] = [{
+            "fails": ["all_tests_due_to_timeout"],
+            "error": f"Test execution timed out after {timeout} seconds. This might indicate an infinite loop or a blocking operation in the code."
+        }]
+    
+    except Exception as e:
+        # Handle any other exceptions that might occur
+        results['overall_status'] = 'ERROR'
+        results['runtime_errors'] = [{
+            "fails": ["execution_error"],
+            "error": f"An error occurred during test execution: {str(e)}"
+        }]
     
     return results
 
