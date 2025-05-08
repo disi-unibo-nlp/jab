@@ -24,6 +24,7 @@ def parse_arguments():
     parser.add_argument("--mode", type=str, choices=["cot", "tir"], default='cot', help="Inference mode: CoT or TIR")
     parser.add_argument("--max_tokens_tir", type=int, default=1024, help="Max number of tokens to generate in TIR prompting.")
     parser.add_argument("--year_sessions", type=str, default="", help="Specific years to consider, separated by comma. E.g: 2016,2018,2021")
+    parser.add_argument("--exam_id", type=str, default="", help="Specific exam session(s) to consider, separated by comma. E.g: oop2016_a01,oop2018_ao1, etc.")
     parser.add_argument("--junit_jar", default= "lib/junit-platform-console-standalone-1.13.0-M2.jar", help="Path to the JUnit standalone JAR file.")
     parser.add_argument("--k", type=int, default=1, help="value of K in Pass@k")
 
@@ -260,11 +261,15 @@ if __name__ == "__main__":
     year_sessions = args.year_sessions.split(",") if args.year_sessions else range(2014,2025) #["oop2014", "oop2015", "oop2016", "oop2017", "oop2018", "oop2019", "oop2020", "oop2021", "oop2022", "oop2023"] 
     now_dir = args.completions_path.split("/")[-2]
 
-    if args.year_sessions:
+    if args.year_sessions: 
         logger.info(f"Number of exam sessions before filtering: {len(completions)}")
         completions = [completion for completion in completions if completion['id'].split("_")[0].replace("oop","").strip() in year_sessions]
         logger.info(f"Number of exam sessions after filtering: {len(completions)}")
 
+    if args.exam_id:
+        logger.info(f"Number of exam sessions before filtering: {len(completions)}")
+        completions = [completion for completion in completions if completion['id'] == args.exam_id]
+        logger.info(f"Number of exam sessions after filtering: {len(completions)}")
     # Group by 'id'
     grouped_data = defaultdict(list)
     for item in completions:
@@ -287,7 +292,7 @@ if __name__ == "__main__":
             for k, attempt in enumerate(attempts):
                 year = attempt['id'].split("_")[0].replace("oop","").strip()
 
-                if int(year) not in year_sessions:
+                if not args.exam_id and int(year) not in year_sessions:
                     continue
                     
                 session = attempt['id'].split("_")[1].strip()
