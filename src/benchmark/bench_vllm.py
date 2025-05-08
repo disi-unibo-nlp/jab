@@ -95,8 +95,9 @@ def create_exams(dataset, exams_dir="exams"):
                     test_content.replace('.e1;', '.sol1;')
                                 .replace('.sol2;', '.sol1;')
                                 .replace('.e2;', '.sol1;')
+                                .replace('.sol1.', f'.sol1.{new_folder}.')
                                 .replace('.sol1;', f'.sol1.{new_folder};')
-                                .replace('.sol1.Evaluation', f'.sol1.{new_folder}.Evaluation')
+                                #.replace('.sol1.Evaluation', f'.sol1.{new_folder}.Evaluation')
                 )
 
                 f.write(test_content)
@@ -446,7 +447,7 @@ if __name__ == "__main__":
         gpu_memory_utilization=.95,
         dtype="half" if "awq" in args.model_path.lower() else "auto",
         quantization="awq_marlin" if "awq" in args.model_path.lower() else None,
-        enforce_eager=False,
+        enforce_eager=True if "33b" in args.model_path.lower() or "32b" in args.model_path.lower() else False,
         max_model_len=args.max_model_len if args.max_model_len > 0 else None,
         trust_remote_code=True,
         tensor_parallel_size=args.n_gpus,
@@ -550,6 +551,12 @@ You may use the provided utilities as needed. Your final answer must consist of 
             messages = [
                 {"role": "user", "content": SYS_INSTRUCTION.replace('You are an expert Java developer.', '').strip() + "\n\n" + prompt}
             ]
+
+        if "phi-4" in args.model_path.lower():
+            messages = [
+                {"role": "system", "content": SYS_INSTRUCTION},
+                {"role": "user", "content": prompt}
+            ]
             
         text = tokenizer.apply_chat_template(
             messages,
@@ -567,14 +574,15 @@ You may use the provided utilities as needed. Your final answer must consist of 
     
     # save first 5 prompts to txt file
     os.makedirs(args.out_dir + "/prompts", exist_ok=True)
-    n_prompts_to_stamp = 5 if args.max_samples > 5 else args.max_samples
+    n_prompts_to_stamp = 5 
+    logger.info(f"Saving {n_prompts_to_stamp} prompts to {args.out_dir}/prompts/example_prompts_{MODEL_NAME}.txt")
     with open(args.out_dir + f'/prompts/example_prompts_{MODEL_NAME}.txt', 'a') as f:
-        for i in range(n_prompts_to_stamp):
-            f.write(f"ID: {prompts[i]['id']}\n")
-            f.write(prompts[i]['prompt'])
+        for pr in prompts[:n_prompts_to_stamp]:
+            f.write(f"ID: {pr['id']}\n")
+            f.write(pr['prompt'])
             f.write("*"*100+'\n')
 
-    logger.info(prompts[0])
+    logger.info(f"Prompt: {prompts[0]['prompt']}")
     
     if args.n_sampling > 1 and args.mode == "agent":
         import copy
