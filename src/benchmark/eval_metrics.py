@@ -19,7 +19,7 @@ from collections import defaultdict
 def parse_arguments():
     parser = argparse.ArgumentParser(description="Script Arguments")
     
-    parser.add_argument("--junit_test_path", type=str, default="out/completions/Qwen2.5-Coder-32B-Instruct-AWQ/cot/n1/2025-04-27_11-39-42/junit_results.jsonl", help="Model's HF directory or local path")
+    parser.add_argument("--junit_test_path", type=str, default="out/completions/gemini-2.5-flash-preview-04-17/cot/pass1/2025-05-10_18-33-31/unittest_cot_python.jsonl", help="Model's HF directory or local path")
     parser.add_argument("--out_dir", type=str, default="./eval_metrics", help="Outputs directory")
     parser.add_argument("--k", type=int, default=1, help="value of K in Pass@k")
     parser.add_argument("--max_score", type=int, default=14, help="max reachable score in the written part of the exam.")
@@ -198,7 +198,8 @@ if __name__ == "__main__":
     logger.info("-"*25)
     logger.info("\n")
 
-    with open(args.out_dir + f"/overall_results_{mode}_pass{k}.jsonl", "a") as f:
+    out_file_path = args.out_dir + f"/overall_results_{mode}_pass{k}.jsonl" if code_language == "java" else args.out_dir + f"/overall_results_{mode}_pass{k}_{code_language}.jsonl"
+    with open(out_file_path, "a") as f:
         out_dict = {
             "model": model_name,
             "size": "",
@@ -235,10 +236,12 @@ if __name__ == "__main__":
         out_dict_per_year_soft[str(year)] = float(pass_k_mandatory)
         out_dict_per_year_hard[str(year)] = float(pass_k)
 
-    with open(args.out_dir + f"/results_per_year_{mode}_pass{k}_SOFT.jsonl", "a") as f:
+    out_file_path = args.out_dir + f"/results_per_year_{mode}_pass{k}_SOFT.jsonl" if code_language == "java" else args.out_dir + f"/results_per_year_{mode}_pass{k}_SOFT_{code_language}.jsonl"
+    with open(out_file_path, "a") as f:
         f.write(json.dumps(out_dict_per_year_soft) + "\n")
-    
-    with open(args.out_dir + f"/results_per_year_{mode}_pass{k}_HARD.jsonl", "a") as f:
+
+    out_file_path = args.out_dir + f"/results_per_year_{mode}_pass{k}_HARD.jsonl" if code_language == "java" else args.out_dir + f"/results_per_year_{mode}_pass{k}_HARD_{code_language}.jsonl"
+    with open(out_file_path, "a") as f:
         f.write(json.dumps(out_dict_per_year_hard) + "\n")
         
         
