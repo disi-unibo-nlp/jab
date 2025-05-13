@@ -39,8 +39,8 @@ If you are interested in reproducing our preprocessing pipelines, follow the gui
 
 ---
 
-### 1️⃣ Download Exam Data
-First, download all the university exams from our [Google Drive repository](https://drive.google.com/drive/folders/1_yFth-GrB8qManGn0GZT5FNidCrhZKBA?usp=sharing).
+### 1️⃣ Craft Exam Data
+First, you need to create exams that can be parsed by our pipeline. Please structure them as shown in the example folder.
 
 ### 2️⃣ Parse Java Files to JSONL
 The raw Java files need to be processed and converted into a JSONL format. To do this, run the [`parse_data.py`](src/preprocessing/parse_data.py) script as follows:
